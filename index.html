@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>포트리스 웹</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+@keyframes fadeInOut {
+  0%   { opacity:0; transform:translateX(-50%) translateY(-10px); }
+  20%  { opacity:1; transform:translateX(-50%) translateY(0); }
+  70%  { opacity:1; }
+  100% { opacity:0; }
+}
+body {
+  background:#000;
+  display:flex; justify-content:center; align-items:flex-start;
+  width:100vw; height:100vh; overflow:hidden;
+  font-family:'Courier New',monospace;
+}
+#wrapper { position:relative; flex-shrink:0; }
+#touch-controls {
+  display:none; align-items:center; flex-direction:row;
+}
+#gameCanvas { display:block; }
+#terrainCanvas { position:absolute; top:0; left:0; pointer-events:none; }
+#ui-top {
+  position:absolute; top:0; left:0; right:0;
+  display:flex; justify-content:space-between; align-items:center;
+  padding:6px 12px; pointer-events:none;
+}
+.p-panel {
+  background:rgba(0,0,0,0.5); border-radius:5px; padding:5px 10px; min-width:140px;
+  border:2px solid #444;
+}
+.p-panel.active { border-color:#ffdd00; }
+.p-name { font-size:12px; font-weight:bold; margin-bottom:3px; }
+.hp-bg { background:#333; border-radius:3px; height:8px; }
+.hp-fill { height:8px; border-radius:3px; transition:width 0.3s; }
+.hp-txt { font-size:10px; color:#aaa; margin-top:2px; }
+#center-info { text-align:center; color:#fff; }
+#wind-box {
+  border-radius:6px; padding:4px 14px; margin-bottom:2px;
+  text-shadow: 1px 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.9);
+}
+#wind-arrow { font-size:20px; line-height:1.1; color:#fff; text-shadow: 1px 1px 3px #000; }
+#wind-txt { font-size:14px; font-weight:bold; color:#fff; text-shadow: 1px 1px 3px #000; }
+#turn-txt { font-size:13px; font-weight:bold; color:#ffdd00; margin-top:2px; }
+#ui-bottom {
+  position:absolute; bottom:0; left:0; right:0;
+  background:rgba(0,0,0,0.8); padding:6px 12px;
+  display:flex; align-items:center; gap:16px; pointer-events:none;
+}
+.c-group { display:flex; flex-direction:column; gap:2px; }
+.c-lbl { font-size:9px; color:#777; }
+.c-val { font-size:14px; font-weight:bold; color:#ffdd00; }
+#pwr-bg { width:240px; height:14px; background:#333; border-radius:3px; overflow:visible; position:relative; cursor:pointer; pointer-events:all; }
+#pwr-fill { height:14px; border-radius:3px; background:linear-gradient(90deg,#22cc44,#ffcc00,#ff3300); }
+#move-bar-bg { width:80px; height:8px; background:#333; border-radius:3px; overflow:hidden; }
+#move-bar-fill { height:8px; border-radius:3px; background:#4af; transition:width 0.1s; }
+#overlay {
+  position:absolute; top:0;left:0;right:0;bottom:0;
+  display:flex; align-items:center; justify-content:center;
+  z-index:50; pointer-events:none;
+}
+#overlay-box {
+  text-align:center; color:#fff; pointer-events:all;
+}
+#overlay-box h2 { font-size:32px; color:#ffdd00; margin-bottom:10px; text-shadow: 0 0 20px rgba(255,200,0,0.8), 2px 2px 4px rgba(0,0,0,0.9); }
+#overlay-box p { font-size:15px; color:#fff; margin-bottom:18px; text-shadow: 1px 1px 4px rgba(0,0,0,0.9); }
+#restart-btn {
+  background:#ffdd00; color:#000; border:none; border-radius:5px;
+  padding:8px 24px; font-size:14px; font-weight:bold; cursor:pointer;
+  font-family:'Courier New',monospace;
+}
+#restart-btn:hover { background:#ffe833; }
+.touch-btn {
+  background:rgba(255,255,255,0.15);
+  color:#fff; border:2px solid rgba(255,255,255,0.4);
+  border-radius:10px; padding:14px 20px; font-size:18px;
+  font-weight:bold; cursor:pointer; font-family:'Courier New',monospace;
+  user-select:none; -webkit-user-select:none;
+  min-width:56px; min-height:56px;
+  display:flex; align-items:center; justify-content:center;
+  touch-action:none;
+}
+.touch-btn:active { background:rgba(255,255,255,0.35); }
+.fire-btn {
+  background:rgba(200,40,0,0.6);
+  border-color:rgba(255,100,50,0.8);
+  padding:16px 22px; font-size:16px;
+  min-width:70px; min-height:70px;
+  line-height:1.2;
+}
+</style>
+</head>
+<body>
+<div id="wrapper">
+  <canvas id="gameCanvas"></canvas>
+  <canvas id="terrainCanvas"></canvas>
+
+  <!-- 상단: HP 좌우 + 바람 가운데 -->
+  <div id="ui-top" style="position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:6px 40px;pointer-events:none;">
+    <!-- P1 HP 좌측 -->
+    <div style="display:flex;flex-direction:column;gap:4px;min-width:150px;">
+      <div style="font-size:16px;color:#4af;font-weight:bold;letter-spacing:1px;text-shadow:1px 1px 4px #000;">🔵 P1</div>
+      <div style="height:14px;background:rgba(0,0,0,0.4);border-radius:5px;overflow:hidden;width:150px;border:1px solid #4af;">
+        <div id="touch-hp-p" style="height:14px;background:#4af;width:100%;transition:width 0.3s;"></div>
+      </div>
+      <div id="touch-hptxt-p" style="font-size:14px;color:#fff;font-weight:bold;text-shadow:1px 1px 4px #000;">200</div>
+    </div>
+    <!-- 바람 가운데 -->
+    <div id="wind-box">
+      <div id="wind-arrow" style="font-size:28px;">→</div>
+      <div id="wind-txt" style="font-size:20px;font-weight:bold;">바람 0.0</div>
+    </div>
+    <!-- BOT HP 우측 -->
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:150px;">
+      <div style="font-size:16px;color:#f84;font-weight:bold;letter-spacing:1px;text-shadow:1px 1px 4px #000;">BOT 🔴</div>
+      <div style="height:14px;background:rgba(0,0,0,0.4);border-radius:5px;overflow:hidden;width:150px;border:1px solid #f84;">
+        <div id="touch-hp-b" style="height:14px;background:#f84;width:100%;transition:width 0.3s;"></div>
+      </div>
+      <div id="touch-hptxt-b" style="font-size:14px;color:#fff;font-weight:bold;text-align:right;text-shadow:1px 1px 4px #000;">200</div>
+    </div>
+  </div>
+
+  <!-- 숨겨진 UI 요소들 -->
+  <div style="display:none;">
+    <div id="panel-p" class="p-panel active"></div>
+    <div id="panel-b" class="p-panel"></div>
+    <div id="hp-p"></div><div id="hp-b"></div>
+    <div id="hptxt-p"></div><div id="hptxt-b"></div>
+    <div id="turn-txt"></div>
+    <div id="angle-val"></div>
+    <div id="pwr-bg" style="position:relative;">
+      <div id="pwr-fill"></div>
+      <div id="pwr-marker"></div>
+      <div id="move-bar-line"></div>
+    </div>
+    <div id="pwr-val"></div>
+    <div id="move-bar-bg"><div id="move-bar-fill"></div></div>
+  </div>
+
+  <div id="overlay" style="display:none;">
+    <div id="overlay-box">
+      <h2 id="ov-title">게임 종료!</h2>
+      <p id="ov-body">승리!</p>
+      <button id="restart-btn" onclick="initGame()">다시 시작</button>
+    </div>
+  </div>
+
+  <!-- 터치 UI 하단 -->
+  <div id="touch-controls" style="
+    position:absolute; bottom:0; left:0; right:0; height:130px;
+    display:flex; flex-direction:row; align-items:center;
+  ">
+    <!-- 왼쪽: 각도 + ◀ ▶ -->
+    <div style="display:flex; align-items:center; padding:0 8px; gap:12px; pointer-events:all; flex-shrink:0;">
+      <div id="touch-angle-val" style="
+        width:62px; height:62px; border:2px solid #f6f; border-radius:6px;
+        display:flex; align-items:center; justify-content:center;
+        color:#fff; font-size:18px; font-weight:bold; font-family:'Courier New',monospace;
+      ">30°</div>
+      <button class="touch-btn" id="btn-left">◀</button>
+      <button class="touch-btn" id="btn-right">▶</button>
+    </div>
+
+    <!-- 가운데: 이동력 + 파워게이지 -->
+    <div style="flex:1; display:flex; flex-direction:column; justify-content:center; gap:6px; padding:0 10px; pointer-events:all; min-width:0; max-width:500px; margin:0 auto;">
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <div style="font-size:9px; color:#4af; text-align:center;">이동력</div>
+        <div style="height:8px; background:#333; border-radius:4px; overflow:hidden; border:1px solid #4af;">
+          <div id="move-bar-line2" style="height:8px; background:#4af; width:100%; transition:width 0.1s;"></div>
+        </div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <div style="font-size:9px; color:#ffdd00; text-align:center;">파워 <span id="pwr-val2" style="color:#ffdd00; font-weight:bold;">0</span></div>
+        <div id="pwr-bg2" style="
+          height:32px; background:#222; border-radius:6px;
+          overflow:hidden; position:relative; cursor:pointer;
+          border:2px solid #f6f;
+        ">
+          <div id="pwr-fill2" style="height:32px; border-radius:6px; background:linear-gradient(90deg,#22cc44,#ffcc00,#ff3300); width:0%;"></div>
+          <div id="pwr-marker2" style="position:absolute;top:0;width:3px;height:32px;background:#fff;display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 오른쪽: ▲▼ + 패스/발사 -->
+    <div style="display:flex; align-items:center; gap:20px; padding:0 8px; pointer-events:all; flex-shrink:0;">
+      <div style="display:flex; flex-direction:column; gap:20px;">
+        <button class="touch-btn" id="btn-up">▲</button>
+        <button class="touch-btn" id="btn-down">▼</button>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:24px; align-items:center;">
+        <button id="pass-btn" onclick="passTurn()" style="
+          background:rgba(80,80,80,0.9); color:#ddd; border:1px solid #888;
+          border-radius:5px; padding:3px 0; font-size:11px;
+          cursor:pointer; font-family:'Courier New',monospace; width:58px;
+        ">패스</button>
+        <button class="touch-btn fire-btn" id="btn-fire" style="width:72px; height:80px; font-size:18px;">발사</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const tCanvas = document.getElementById('terrainCanvas');
+const tCtx = tCanvas.getContext('2d');
+const wrapper = document.getElementById('wrapper');
+
+const GAME_W = 960, GAME_H = 540;
+const UI_TOP = 0, UI_BOT = 0;
+const CANVAS_H = GAME_H;
+
+function resizeWrapper() {
+  const scale = Math.min(window.innerWidth / GAME_W, window.innerHeight / GAME_H);
+  wrapper.style.width = GAME_W + 'px';
+  wrapper.style.height = GAME_H + 'px';
+  wrapper.style.transform = `scale(${scale})`;
+  wrapper.style.transformOrigin = 'top center';
+  canvas.width = tCanvas.width = GAME_W;
+  canvas.height = tCanvas.height = GAME_H;
+  canvas.style.marginTop = tCanvas.style.marginTop = '0px';
+}
+resizeWrapper();
+window.addEventListener('resize', () => {
+  resizeWrapper();
+  if (typeof terrainDirty !== 'undefined') terrainDirty = true;
+});
+
+const GRAVITY = 380;
+const TANK_H = 14;
+const MOVE_SPEED = 50;
+const MAX_MOVE = 150;
+const ANGLE_SPEED = 25;
+const ANGLE_RANGE = 40;
+const ANGLE_MIN = 15;
+
+// ── 바람 시스템 ──
+let windPhase = 0;
+let windSpeed = 0.08;
+let windAmplitude = 5;
+
+function updateWind() {
+  windPhase += windSpeed + (Math.random() - 0.5) * 0.02;
+  const newWind = Math.sin(windPhase) * windAmplitude;
+  windAmplitude = Math.max(2, Math.min(7, windAmplitude + (Math.random() - 0.5) * 0.3));
+  return newWind;
+}
+
+// ── 지형 시스템 ──
+let terrain = [];
+let terrainDirty = true;
+
+function initTerrainArray() {
+  terrain = [];
+  for (let x = 0; x < GAME_W; x++) {
+    terrain[x] = new Uint8Array(GAME_H);
+  }
+}
+
+function buildSkyMap() {
+  initTerrainArray();
+  const skyCP = [
+    { x: 0,   y: 360 }, { x: 80,  y: 328 }, { x: 150, y: 278 }, { x: 220, y: 338 },
+    { x: 290, y: 382 }, { x: 360, y: 318 }, { x: 420, y: 258 }, { x: 480, y: 288 },
+    { x: 540, y: 268 }, { x: 600, y: 312 }, { x: 650, y: 372 }, { x: 710, y: 302 },
+    { x: 770, y: 252 }, { x: 830, y: 318 }, { x: 890, y: 352 }, { x: 960, y: 365 },
+  ];
+  const THICK = 90;
+  for (let x = 0; x < GAME_W; x++) {
+    let surfaceY = 400;
+    for (let i = 0; i < skyCP.length - 1; i++) {
+      if (x >= skyCP[i].x && x <= skyCP[i+1].x) {
+        const t = (x - skyCP[i].x) / (skyCP[i+1].x - skyCP[i].x);
+        const tc = (1 - Math.cos(t * Math.PI)) / 2;
+        surfaceY = skyCP[i].y * (1 - tc) + skyCP[i+1].y * tc;
+        break;
+      }
+    }
+    const top = Math.round(surfaceY);
+    const bot = Math.min(GAME_H - 1, top + THICK);
+    for (let y = top; y <= bot; y++) {
+      terrain[x][y] = 1;
+    }
+  }
+  terrainDirty = true;
+}
+
+function getSurfaceY(x) {
+  const xi = Math.max(0, Math.min(GAME_W - 1, Math.round(x)));
+  for (let y = 0; y < GAME_H; y++) {
+    if (terrain[xi][y]) return y;
+  }
+  return -1;
+}
+
+function getSurfaceYNear(x, currentY) {
+  const xi = Math.max(0, Math.min(GAME_W - 1, Math.round(x)));
+  const searchFrom = Math.max(0, Math.round(currentY) - 30);
+  for (let y = searchFrom; y < GAME_H; y++) {
+    if (terrain[xi][y]) return y;
+  }
+  return -1;
+}
+
+function getTerrainAngle(x) {
+  const dx = 6;
+  const y1 = getSurfaceY(x - dx);
+  const y2 = getSurfaceY(x + dx);
+  if (y1 < 0 || y2 < 0) return 0;
+  return Math.atan2(y2 - y1, dx * 2);
+}
+
+function isTerrain(x, y) {
+  const xi = Math.round(x), yi = Math.round(y);
+  if (xi < 0 || xi >= GAME_W || yi < 0 || yi >= GAME_H) return false;
+  return terrain[xi][yi] === 1;
+}
+
+function deformTerrain(cx, cy, vx, vy) {
+  const speed = Math.sqrt(vx*vx + vy*vy);
+  const ndx = speed > 0 ? vx / speed : 0;
+  const ndy = speed > 0 ? vy / speed : 1;
+  const stages = [
+    { size: 16, longMult: 2.2, shortMult: 0.75, offset:  0, delay:   0, dmg: 25 }, 
+    { size: 14, longMult: 2.2, shortMult: 0.55, offset: 16, delay: 130, dmg: 15 }, 
+    { size: 10, longMult: 2.2, shortMult: 0.55, offset: 28, delay: 260, dmg:  8 }, 
+  ];
+
+  stages.forEach((st, si) => {
+    setTimeout(() => {
+      if (G.gameOver) return;
+      const ox = cx + ndx * st.offset;
+      const oy = cy + ndy * st.offset;
+      G.explosions.push({ x: ox, y: oy, r: st.size * 1.4, life: 20, maxLife: 20 });
+      if (si === 0) playSound('explode1');
+      else if (si === 1) playSound('explode2');
+      else playSound('explode3');
+
+      const longR  = st.size * st.longMult;
+      const shortR = st.size * st.shortMult;
+      const x1 = Math.max(0, Math.round(ox - longR));
+      const x2 = Math.min(GAME_W - 1, Math.round(ox + longR));
+      const y1 = Math.max(0, Math.round(oy - longR));
+      const y2 = Math.min(GAME_H - 1, Math.round(oy + longR));
+
+      for (let px = x1; px <= x2; px++) {
+        for (let py = y1; py <= y2; py++) {
+          if (!terrain[px][py]) continue;
+          const dx = px - ox;
+          const dy = py - oy;
+          const along = dx * ndx + dy * ndy;
+          const perp  = dx * ndy - dy * ndx;
+          const ev = (along/longR)*(along/longR) + (perp/shortR)*(perp/shortR);
+          if (ev <= 1) terrain[px][py] = 0;
+        }
+      }
+      terrainDirty = true;
+    }, st.delay);
+  });
+}
+
+function redrawTerrain() {
+  tCtx.clearRect(0, 0, GAME_W, GAME_H);
+  const imgData = tCtx.createImageData(GAME_W, GAME_H);
+  const d = imgData.data;
+
+  for (let x = 0; x < GAME_W; x++) {
+    let surfY = -1;
+    for (let y = 0; y < GAME_H; y++) {
+      if (terrain[x][y]) { surfY = y; break; }
+    }
+    for (let y = 0; y < GAME_H; y++) {
+      if (!terrain[x][y]) continue;
+      const idx = (y * GAME_W + x) * 4;
+      const depthRatio = surfY >= 0 ? (y - surfY) / 40 : 0;
+
+      if (y === surfY || y === surfY + 1) {
+        d[idx]   = 240; d[idx+1] = 248; d[idx+2] = 255; d[idx+3] = 255;
+      } else {
+        d[idx]   = Math.round(180 - depthRatio * 80);
+        d[idx+1] = Math.round(200 - depthRatio * 70);
+        d[idx+2] = Math.round(230 - depthRatio * 60);
+        d[idx+3] = 255;
+      }
+    }
+  }
+  tCtx.putImageData(imgData, 0, 0);
+  terrainDirty = false;
+}
+
+function getGunAngle(tank) {
+  const terrAngle = getTerrainAngle(tank.x);
+  const angleRad = tank.angle * Math.PI / 180;
+  return tank.facing === 1
+    ? terrAngle - angleRad
+    : Math.PI + terrAngle + angleRad;
+}
+
+// ── 게임 상태 ──
+let G = {};
+
+function initGame() {
+  buildSkyMap();
+  const px = findSafeX(50, GAME_W / 2 - 50);
+  const bx = findSafeX(GAME_W / 2 + 50, GAME_W - 50);
+
+  G = {
+    wind: updateWind(),
+    turn: 'player', phase: 'move',
+    pwrCharging: false, pwrVal: 0,
+    projectiles: [], explosions: [],
+    gameOver: false,
+    lastPower: 0,
+    pwrReady: false,
+    botMoving: false, botTargetX: bx,
+    player: {
+      x: px, y: getSurfaceY(px) >= 0 ? getSurfaceY(px) - TANK_H : 100,
+      vy: 0, onGround: true,
+      hp: 200, maxHp: 200, angle: 30, facing: 1, moveUsed: 0,
+      color: '#4af', isBot: false
+    },
+    bot: {
+      x: bx, y: getSurfaceY(bx) >= 0 ? getSurfaceY(bx) - TANK_H : 100,
+      vy: 0, onGround: true,
+      hp: 200, maxHp: 200, angle: 30, facing: -1, moveUsed: 0,
+      color: '#f84', isBot: true
+    }
+  };
+  document.getElementById('overlay').style.display = 'none';
+  updateUI();
+}
+
+function findSafeX(x1, x2) {
+  const candidates = [];
+  for (let x = Math.round(x1); x <= Math.round(x2); x++) {
+    if (getSurfaceY(x) >= 0) candidates.push(x);
+  }
+  if (candidates.length === 0) return Math.round((x1 + x2) / 2);
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function simulateShot(tank, angleVal, power) {
+  const testBot = { x: tank.x, y: tank.y, angle: angleVal, facing: tank.facing };
+  const gunAngle = getGunAngle(testBot);
+  const speed = power * 6;
+  let px = tank.x + Math.cos(gunAngle) * 26;
+  let py = tank.y - TANK_H * 0.5 + Math.sin(gunAngle) * 26;
+  let pvx = Math.cos(gunAngle) * speed;
+  let pvy = Math.sin(gunAngle) * speed;
+  for (let step = 0; step < 400; step++) {
+    const dt = 0.016;
+    pvx += G.wind * 20 * dt;
+    pvy += GRAVITY * dt;
+    px += pvx * dt;
+    py += pvy * dt;
+    if (px < 0 || px > GAME_W || py > GAME_H) return { x: px, y: py };
+    if (isTerrain(px, py)) return { x: px, y: py };
+  }
+  return { x: px, y: py };
+}
+
+function botThink() {
+  const bot = G.bot, player = G.player;
+  const dx = player.x - bot.x;
+  bot.facing = dx > 0 ? 1 : -1;
+
+  let bestAngle = 35, bestPower = 50, bestError = Infinity;
+  for (let testAngle = 5; testAngle <= 60; testAngle += 1) {
+    for (let testPower = 15; testPower <= 99; testPower += 2) {
+      const result = simulateShot(bot, testAngle, testPower);
+      const err = Math.abs(result.x - player.x) + Math.abs(result.y - player.y) * 0.8;
+      if (err < bestError) {
+        bestError = err;
+        bestAngle = testAngle;
+        bestPower = testPower;
+      }
+    }
+  }
+  bestAngle += (Math.random() - 0.5) * 4;
+  bestPower += (Math.random() - 0.5) * 5;
+  bestAngle = Math.max(ANGLE_MIN, Math.min(ANGLE_RANGE, bestAngle));
+  bestPower = Math.max(10, Math.min(99, bestPower));
+  bot.angle = bestAngle;
+
+  const hpRatio = bot.hp / bot.maxHp;
+  let moveDir = dx > 0 ? 1 : -1;
+  if (hpRatio < 0.3) moveDir *= -1;
+
+  let bestMoveX = bot.x;
+  let bestHeight = getSurfaceY(bot.x);
+  for (let tx = bot.x - 150; tx <= bot.x + 150; tx += 10) {
+    if (tx < 20 || tx > GAME_W - 20) continue;
+    const sy = getSurfaceY(tx);
+    if (sy >= 0 && sy < bestHeight) { bestHeight = sy; bestMoveX = tx; }
+  }
+
+  const rand = Math.random();
+  if (rand < 0.4 && Math.abs(bestMoveX - bot.x) > 20) {
+    G.botMoving = true;
+    G.botTargetX = bestMoveX;
+  } else if (rand < 0.65) {
+    const moveDist = Math.random() * 60 + 20;
+    const tx = Math.max(20, Math.min(GAME_W - 20, bot.x + moveDir * moveDist));
+    G.botMoving = true;
+    G.botTargetX = getSurfaceY(Math.round(tx)) >= 0 ? tx : bot.x;
+  }
+
+  setTimeout(() => {
+    if (!G.gameOver) {
+      G.botMoving = false;
+      G.phase = 'flying';
+      fireShot(bot, bestPower);
+    }
+  }, 1000 + Math.random() * 500);
+}
+
+// ── 효과음 ──
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function playSound(type) {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    if (type === 'fire') {
+      const osc = ctx.createOscillator(); const og = ctx.createGain();
+      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, now);
+      osc.frequency.exponentialRampToValueAtTime(80, now + 0.06);
+      og.gain.setValueAtTime(0.8, now); og.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      osc.connect(og); og.connect(ctx.destination);
+      osc.start(now); osc.stop(now + 0.08);
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.06, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const ng = ctx.createGain(); ng.gain.setValueAtTime(0.6, now);
+      const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1500; bp.Q.value=0.8;
+      src.connect(bp); bp.connect(ng); ng.connect(ctx.destination); src.start(now);
+    } else if (type === 'explode1') {
+      const osc = ctx.createOscillator(); const og = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(25, now + 0.4);
+      og.gain.setValueAtTime(1.2, now); og.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+      osc.connect(og); og.connect(ctx.destination); osc.start(now); osc.stop(now + 0.45);
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.35, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 0.8);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const ng = ctx.createGain(); ng.gain.setValueAtTime(0.9, now); ng.gain.exponentialRampToValueAtTime(0.001, now+0.35);
+      const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=500;
+      src.connect(lp); lp.connect(ng); ng.connect(ctx.destination); src.start(now);
+    } else if (type === 'explode2') {
+      const osc = ctx.createOscillator(); const og = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.setValueAtTime(100, now);
+      osc.frequency.exponentialRampToValueAtTime(22, now + 0.25);
+      og.gain.setValueAtTime(0.8, now); og.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      osc.connect(og); og.connect(ctx.destination); osc.start(now); osc.stop(now + 0.28);
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.22, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 1.2);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const ng = ctx.createGain(); ng.gain.setValueAtTime(0.6, now); ng.gain.exponentialRampToValueAtTime(0.001, now+0.22);
+      const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=700;
+      src.connect(lp); lp.connect(ng); ng.connect(ctx.destination); src.start(now);
+    } else if (type === 'explode3') {
+      const osc = ctx.createOscillator(); const og = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.setValueAtTime(80, now);
+      osc.frequency.exponentialRampToValueAtTime(18, now + 0.13);
+      og.gain.setValueAtTime(0.5, now); og.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      osc.connect(og); og.connect(ctx.destination); osc.start(now); osc.stop(now + 0.15);
+    } else if (type === 'fall') {
+      const osc1 = ctx.createOscillator(); const og1 = ctx.createGain();
+      osc1.type = 'sawtooth'; osc1.frequency.setValueAtTime(800, now);
+      osc1.frequency.exponentialRampToValueAtTime(50, now + 0.9);
+      og1.gain.setValueAtTime(0.0, now); og1.gain.linearRampToValueAtTime(0.35, now + 0.1);
+      og1.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+      osc1.connect(og1); og1.connect(ctx.destination); osc1.start(now); osc1.stop(now + 0.9);
+      const osc2 = ctx.createOscillator(); const og2 = ctx.createGain();
+      osc2.type = 'sine'; osc2.frequency.setValueAtTime(120, now + 0.85);
+      osc2.frequency.exponentialRampToValueAtTime(20, now + 1.2);
+      og2.gain.setValueAtTime(0, now); og2.gain.setValueAtTime(1.0, now + 0.85);
+      og2.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+      osc2.connect(og2); og2.connect(ctx.destination); osc2.start(now); osc2.stop(now + 1.2);
+    } else if (type === 'win') {
+      const melody = [
+        { freq: 523, t: 0, dur: 0.1 }, { freq: 659, t: 0.11, dur: 0.1 },
+        { freq: 784, t: 0.22, dur: 0.1 }, { freq: 784, t: 0.33, dur: 0.08 },
+        { freq: 1047,t: 0.42, dur: 0.3 },
+      ];
+      melody.forEach(n => {
+        const osc = ctx.createOscillator(); const og = ctx.createGain();
+        osc.type = 'square'; osc.frequency.value = n.freq;
+        og.gain.setValueAtTime(0, now + n.t); og.gain.linearRampToValueAtTime(0.2, now + n.t + 0.01);
+        og.gain.exponentialRampToValueAtTime(0.001, now + n.t + n.dur);
+        osc.connect(og); og.connect(ctx.destination);
+        osc.start(now + n.t); osc.stop(now + n.t + n.dur + 0.05);
+      });
+    }
+  } catch(e) {}
+}
+
+function fireShot(tank, power) {
+  const gunAngle = getGunAngle(tank);
+  const speed = power * 6;
+  G.projectiles.push({
+    x: tank.x + Math.cos(gunAngle) * 26,
+    y: tank.y - TANK_H * 0.5 + Math.sin(gunAngle) * 26,
+    vx: Math.cos(gunAngle) * speed,
+    vy: Math.sin(gunAngle) * speed,
+    owner: tank.isBot ? 'bot' : 'player',
+    trail: []
+  });
+  G.firing = true;
+  playSound('fire');
+}
+
+// ── 업데이트 ──
+let lastTs = 0;
+function gameLoop(ts) {
+  const dt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+  if (terrainDirty) redrawTerrain();
+  update(dt);
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+function update(dt) {
+  if (G.gameOver) {
+    const player = G.player;
+    if (keys['ArrowLeft']) { player.facing = -1; player.x = Math.max(10, player.x - MOVE_SPEED * dt); }
+    if (keys['ArrowRight']) { player.facing = 1; player.x = Math.min(GAME_W - 10, player.x + MOVE_SPEED * dt); }
+    if (keys['ArrowUp']) player.angle = Math.min(ANGLE_RANGE, player.angle + ANGLE_SPEED * dt);
+    if (keys['ArrowDown']) player.angle = Math.max(ANGLE_MIN, player.angle - ANGLE_SPEED * dt);
+    [player, G.bot].forEach(tank => {
+      if (tank.hp <= 0) return;
+      const sy = getSurfaceY(tank.x);
+      if (sy >= 0) tank.y = sy - TANK_H;
+    });
+    return;
+  }
+  const { player, bot } = G;
+
+  if (G.pwrCharging && G.turn === 'player' && G.phase === 'move' && !G.firing) {
+    G.pwrVal = Math.min(100, G.pwrVal + dt * 70);
+  }
+
+  if (G.botMoving && G.turn === 'bot' && G.phase === 'botthink') {
+    const diff = G.botTargetX - bot.x;
+    if (Math.abs(diff) > 1) {
+      const nx = bot.x + Math.sign(diff) * MOVE_SPEED * 1.5 * dt;
+      const curSY = getSurfaceY(bot.x);
+      const nextSY = getSurfaceY(nx);
+      const heightUp = (curSY > 0 && nextSY > 0) ? curSY - nextSY : 0;
+      if (heightUp < 5) {
+        const mv = Math.sign(diff) * MOVE_SPEED * 1.5 * dt;
+        bot.x += Math.abs(mv) > Math.abs(diff) ? diff : mv;
+        bot.facing = diff > 0 ? 1 : -1;
+      } else {
+        G.botMoving = false; G.botTargetX = bot.x;
+      }
+    } else { G.botMoving = false; }
+  }
+
+  if (G.turn !== 'player' || G.phase !== 'move') {
+    if (keys['ArrowLeft']) player.facing = -1;
+    if (keys['ArrowRight']) player.facing = 1;
+    if (keys['ArrowUp'])   player.angle = Math.min(ANGLE_RANGE, player.angle + ANGLE_SPEED * dt);
+    if (keys['ArrowDown']) player.angle = Math.max(ANGLE_MIN, player.angle - ANGLE_SPEED * dt);
+    if (G.pwrCharging) G.pwrVal = Math.min(100, G.pwrVal + dt * 70);
+  }
+
+  if (G.turn === 'player' && G.phase === 'move') {
+    if (keys['ArrowLeft']) {
+      player.facing = -1;
+      if (player.moveUsed < MAX_MOVE && player.onGround) {
+        const nx = Math.max(10, player.x - MOVE_SPEED * dt);
+        const curSY = getSurfaceYNear(player.x, player.y);
+        const nextSY = getSurfaceYNear(nx, player.y);
+        const heightUp = (curSY > 0 && nextSY > 0) ? curSY - nextSY : 0;
+        if (heightUp < 5) {
+          const slopeFactor = Math.max(0.3, 1 - Math.max(0, heightUp) * 0.04);
+          const mv = MOVE_SPEED * slopeFactor * dt;
+          player.x = Math.max(10, player.x - mv);
+          player.moveUsed += mv * (1 + Math.max(0, heightUp) * 0.06);
+        }
+      }
+    }
+    if (keys['ArrowRight']) {
+      player.facing = 1;
+      if (player.moveUsed < MAX_MOVE && player.onGround) {
+        const nx = Math.min(GAME_W - 10, player.x + MOVE_SPEED * dt);
+        const curSY = getSurfaceYNear(player.x, player.y);
+        const nextSY = getSurfaceYNear(nx, player.y);
+        const heightUp = (curSY > 0 && nextSY > 0) ? curSY - nextSY : 0;
+        if (heightUp < 5) {
+          const slopeFactor = Math.max(0.3, 1 - Math.max(0, heightUp) * 0.04);
+          const mv = MOVE_SPEED * slopeFactor * dt;
+          player.x = Math.min(GAME_W - 10, player.x + mv);
+          player.moveUsed += mv * (1 + Math.max(0, heightUp) * 0.06);
+        }
+      }
+    }
+    if (keys['ArrowUp'])   player.angle = Math.min(ANGLE_RANGE, player.angle + ANGLE_SPEED * dt);
+    if (keys['ArrowDown']) player.angle = Math.max(ANGLE_MIN, player.angle - ANGLE_SPEED * dt);
+  }
+
+  [player, bot].forEach(tank => {
+    if (tank.hp <= 0) return;
+    const sy = getSurfaceYNear(tank.x, tank.y);
+    if (sy < 0) {
+      tank.vy += GRAVITY * dt;
+      tank.y += tank.vy * dt;
+      tank.onGround = false;
+      if (tank.y > GAME_H + 40) { tank.hp = 0; playSound('fall'); }
+    } else {
+      const gy = sy - TANK_H;
+      if (tank.y < gy - 2) {
+        tank.vy += GRAVITY * dt;
+        tank.y += tank.vy * dt;
+        tank.onGround = false;
+        if (tank.y >= gy) { tank.y = gy; tank.vy = 0; tank.onGround = true; }
+      } else {
+        tank.y = gy; tank.vy = 0; tank.onGround = true;
+      }
+    }
+  });
+
+  for (let i = G.projectiles.length - 1; i >= 0; i--) {
+    const p = G.projectiles[i];
+    p.vx += G.wind * 20 * dt;
+    p.vy += GRAVITY * dt;
+    p.trail.push({ x: p.x, y: p.y });
+    if (p.trail.length > 30) p.trail.shift();
+
+    const prevX = p.x, prevY = p.y;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    const stepDist = Math.sqrt((p.x-prevX)*(p.x-prevX)+(p.y-prevY)*(p.y-prevY));
+    p.travelDist = (p.travelDist || 0) + stepDist;
+
+    let hit = false;
+    if (isTerrain(p.x, p.y)) { deformTerrain(p.x, p.y, p.vx, p.vy); hit = true; }
+    if (p.y > GAME_H + 20) hit = true;
+
+    if (!hit) {
+      [player, bot].forEach(tank => {
+        if (tank.hp <= 0 || tank.isBot === (p.owner === 'bot')) return;
+
+        const terrAngle = getTerrainAngle(tank.x);
+        const gunAngle = getGunAngle(tank);
+        const dx = p.x - tank.x;
+        const dy = p.y - tank.y;
+        const cosT = Math.cos(-terrAngle), sinT = Math.sin(-terrAngle);
+        const lx = dx * cosT - dy * sinT;
+        const ly = dx * sinT + dy * cosT;
+
+        const bodyHit = (lx/22)*(lx/22) + ((ly+2)/8)*((ly+2)/8) <= 1;
+        const turretDx = lx - 2 * tank.facing;
+        const turretDy = ly + 8;
+        const turretHit = Math.sqrt(turretDx*turretDx + turretDy*turretDy) <= 9;
+        
+        const localGunAngle = gunAngle - terrAngle;
+        const barrelEndX = 2 * tank.facing + Math.cos(localGunAngle) * 22;
+        const barrelEndY = -8 + Math.sin(localGunAngle) * 22;
+        const barrelStartX = 2 * tank.facing;
+        const barrelStartY = -8;
+        const bLen = Math.sqrt((barrelEndX-barrelStartX)**2 + (barrelEndY-barrelStartY)**2);
+        const bt = Math.max(0, Math.min(1, ((lx-barrelStartX)*(barrelEndX-barrelStartX) + (ly-barrelStartY)*(barrelEndY-barrelStartY)) / (bLen*bLen)));
+        const closestX = barrelStartX + bt*(barrelEndX-barrelStartX);
+        const closestY = barrelStartY + bt*(barrelEndY-barrelStartY);
+        const barrelDist = Math.sqrt((lx-closestX)**2 + (ly-closestY)**2);
+        const barrelHit = barrelDist <= 4;
+
+        if (bodyHit || turretHit || barrelHit) {
+          const centerDist = Math.sqrt(lx*lx + (ly+2)*(ly+2));
+          let accuracy;
+          if (bodyHit) accuracy = Math.max(0.6, 1 - centerDist / 55);
+          else if (turretHit) accuracy = 0.8;
+          else accuracy = 0.7;
+
+          const travelBonus = Math.floor(Math.min(20, Math.max(0, (p.travelDist - 500) / (2000 - 500) * 20)));
+          const dmgStages = [
+            { dmg: Math.round(20 * accuracy), delay:   0 },
+            { dmg: Math.round(10 * accuracy), delay: 130 },
+            { dmg: Math.round( 5 * accuracy) + travelBonus, delay: 260 },
+          ];
+
+          dmgStages.forEach(ds => {
+            setTimeout(() => {
+              if (!G.gameOver && tank.hp > 0) {
+                tank.hp = Math.max(0, tank.hp - ds.dmg);
+                checkGameOver();
+              }
+            }, ds.delay);
+          });
+          deformTerrain(p.x, p.y, p.vx, p.vy);
+          hit = true;
+        }
+      });
+    }
+
+    if (p.x < -60 || p.x > GAME_W + 60) hit = true;
+    if (hit) {
+      G.projectiles.splice(i, 1);
+      if (G.projectiles.length === 0 && G.firing) {
+        G.firing = false;
+        setTimeout(() => {
+          if (checkGameOver()) return;
+          setTimeout(nextTurn, 400);
+        }, 350);
+      }
+    }
+  }
+
+  for (let i = G.explosions.length - 1; i >= 0; i--) {
+    G.explosions[i].life -= dt * 50;
+    if (G.explosions[i].life <= 0) G.explosions.splice(i, 1);
+  }
+
+  if (player.hp <= 0 || bot.hp <= 0) checkGameOver();
+  updateUI();
+}
+
+function showTurnNotice(text) {
+  const old = document.getElementById('turn-notice');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'turn-notice';
+  el.textContent = text;
+  el.style.cssText = `
+    position:absolute; left:50%; transform:translateX(-50%);
+    top:90px; color:#ffdd00; font-size:22px; font-weight:bold;
+    font-family:'Courier New',monospace;
+    text-shadow:0 0 10px rgba(255,200,0,0.8), 1px 1px 3px #000;
+    pointer-events:none; z-index:100;
+    animation:fadeInOut 2s ease forwards;
+  `;
+  document.getElementById('wrapper').appendChild(el);
+  setTimeout(() => { if (el.parentNode) el.remove(); }, 2000);
+}
+
+function nextTurn() {
+  if (G.gameOver) return;
+  G.wind = updateWind();
+  G.pwrCharging = false;
+  G.pwrReady = false;
+  if (G.turn === 'player') {
+    G.turn = 'bot'; G.phase = 'botthink';
+    G.player.moveUsed = 0; G.botMoving = false;
+    showTurnNotice('🔴 BOT 턴!');
+    setTimeout(() => { if (!G.gameOver) botThink(); }, 400);
+  } else {
+    G.turn = 'player'; G.phase = 'move';
+    G.bot.moveUsed = 0;
+    showTurnNotice('🔵 P1 턴!');
+  }
+  updateUI();
+}
+
+function checkGameOver() {
+  if (G.gameOver) return false;
+  if (G.player.hp <= 0 && G.bot.hp <= 0) {
+    showOverlay('💥 무승부!', '둘 다 격파됐습니다!'); G.gameOver = true; return true;
+  }
+  if (G.player.hp <= 0) {
+    playSound('fall');
+    showOverlay('💥 봇 승리!', '플레이어 탱크가 격파됐습니다!'); G.gameOver = true; return true;
+  }
+  if (G.bot.hp <= 0) {
+    playSound('win');
+    showOverlay('🏆 플레이어 승리!', '봇 탱크를 격파했습니다!'); G.gameOver = true; return true;
+  }
+  return false;
+}
+
+function showOverlay(t, b) {
+  document.getElementById('ov-title').textContent = t;
+  document.getElementById('ov-body').textContent = b;
+  document.getElementById('restart-btn').style.display = 'none';
+  document.getElementById('overlay').style.display = 'flex';
+  let count = 10;
+  const btn = document.getElementById('restart-btn');
+  const timer = setInterval(() => {
+    count--;
+    document.getElementById('ov-body').textContent = `${b} (${count}초 후 재시작 가능)`;
+    if (count <= 0) {
+      clearInterval(timer);
+      btn.style.display = 'block';
+      document.getElementById('ov-body').textContent = b;
+    }
+  }, 1000);
+}
+
+// ── 그리기 ──
+function draw() {
+  ctx.clearRect(0, 0, GAME_W, GAME_H);
+
+  const sky = ctx.createLinearGradient(0, 0, 0, GAME_H);
+  sky.addColorStop(0, '#080c1a');
+  sky.addColorStop(0.6, '#0d2040');
+  sky.addColorStop(1, '#0a1830');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  [[55,22],[155,48],[275,16],[418,38],[558,10],[698,46],[818,20],[918,36],
+   [108,72],[478,62],[298,52],[738,28],[848,68],[198,32],[648,18],[350,80],[500,25],[780,55]
+  ].forEach(([sx,sy]) => {
+    ctx.beginPath(); ctx.arc(sx,sy,1,0,Math.PI*2); ctx.fill();
+  });
+
+  drawTank(G.player, false);
+  drawTank(G.bot, true);
+  G.projectiles.forEach(drawProjectile);
+  G.explosions.forEach(drawExplosion);
+}
+
+// ── 포트리스 미사일 탱크 디자인 적용 (피아 식별 색상 및 눈 방향 수정 완료) ──
+function drawTank(tank, isBot) {
+  if (!tank.hp && tank.hp !== 0) return;
+
+  const ratio = tank.hp / tank.maxHp;
+  const terrAngle = tank.onGround ? getTerrainAngle(tank.x) : 0;
+  const t = Date.now() / 1000;
+  const isMoving = tank === G.player && (keys['ArrowLeft'] || keys['ArrowRight']);
+
+  ctx.save();
+  ctx.translate(tank.x, tank.y);
+  ctx.rotate(terrAngle);
+
+  // 파괴된 상태 (고철 잔해)
+  if (tank.hp <= 0) {
+    ctx.save(); ctx.scale(tank.facing, 1);
+    ctx.fillStyle='#555'; ctx.beginPath(); ctx.ellipse(0,4,22,7,0.2,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#3a3a3a'; ctx.beginPath(); ctx.ellipse(-2,-2,14,8,-0.1,0,Math.PI*2); ctx.fill();
+    ctx.restore(); ctx.restore(); return;
+  }
+
+  // 좌우 방향에 맞춰 화면 스케일 반전 (facing: 1 = 오른쪽, -1 = 왼쪽)
+  ctx.save();
+  ctx.scale(tank.facing, 1);
+
+  // ----------------------------------------------------
+  // A. 무한궤도 (하부 트랙)
+  // ----------------------------------------------------
+  ctx.fillStyle = '#1c2833';
+  ctx.beginPath();
+  ctx.roundRect(-22, -2, 44, 12, 6);
+  ctx.fill();
+  ctx.strokeStyle = '#0f171e';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // 바퀴 디테일
+  const wheelRot = t * 6;
+  ctx.fillStyle = '#566573';
+  for (let i = -14; i <= 14; i += 7) {
+      ctx.save();
+      ctx.translate(i, 4);
+      if (isMoving) ctx.rotate(wheelRot + i);
+      ctx.beginPath();
+      ctx.arc(0, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1c2833';
+      ctx.beginPath();
+      ctx.arc(1, 0, 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = '#566573';
+  }
+
+  // ----------------------------------------------------
+  // B. 탱크 차체 (플레이어: 연하늘색 / 봇: 붉은-주황색)
+  // ----------------------------------------------------
+  const bodyColor = isBot ? '#E74C3C' : '#7ec8e3';
+  const bodyDark = isBot ? '#78281F' : '#2980b9';
+  const highlightColor = isBot ? '#F1948A' : '#5dade2';
+
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.roundRect(-18, -13, 36, 12, 4);
+  ctx.fill();
+  ctx.strokeStyle = bodyDark;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // 차체 측면 장갑 라인
+  ctx.strokeStyle = highlightColor;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-15, -9); ctx.lineTo(15, -9);
+  ctx.moveTo(-15, -6); ctx.lineTo(15, -6);
+  ctx.stroke();
+
+  // 차체 눈 (앞쪽을 보도록 x좌표를 7로 수정)
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(7, -7, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = bodyDark;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.arc(8, -7, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 차체 눈꺼풀
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.arc(7, -7, 6, Math.PI, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = bodyDark;
+  ctx.stroke();
+
+  // 포탑 연결부 (돌기)
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.rect(-3, -17, 6, 4);
+  ctx.fill();
+  ctx.stroke();
+
+  // ----------------------------------------------------
+  // C. 상단 미사일 포신 (조준 각도 회전)
+  // ----------------------------------------------------
+  ctx.save();
+  ctx.translate(0, -15);
+
+  const aimAngle = tank.angle * Math.PI / 180;
+  ctx.rotate(-aimAngle); 
+
+  // 미사일 후면 (몸통)
+  const missileBody = isBot ? '#FADBD8' : '#bdc3c7';
+
+  ctx.fillStyle = missileBody;
+  ctx.beginPath();
+  ctx.rect(-2, -9, 18, 14);
+  ctx.fill();
+  ctx.strokeStyle = '#34495e';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // 미사일 전면 (탄두)
+  ctx.fillStyle = isBot ? '#922B21' : '#e74c3c';
+  ctx.beginPath();
+  ctx.moveTo(16, -9);
+  ctx.lineTo(28, -2);
+  ctx.lineTo(16, 5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#34495e';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // 미사일 눈 (앞쪽을 보도록 정렬)
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(8, -2, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#34495e';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.arc(9, -2, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 미사일 눈꺼풀
+  ctx.fillStyle = missileBody;
+  ctx.beginPath();
+  ctx.arc(8, -2, 5, Math.PI, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#34495e';
+  ctx.stroke();
+
+  // 조준 가이드 선 (플레이어 차례일 때 표시)
+  if (!isBot && G.phase === 'move' && G.turn === 'player' && !G.firing) {
+      ctx.strokeStyle = 'rgba(255, 225, 93, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+
+      ctx.beginPath();
+      ctx.moveTo(28, 0);
+      ctx.lineTo(60, 0);
+      ctx.stroke();
+      ctx.setLineDash([]);
+  }
+
+  ctx.restore(); // 포탑 context 복원
+  ctx.restore(); // facing scale context 복원
+
+  // ----------------------------------------------------
+  // D. 라벨 및 피격 효과
+  // ----------------------------------------------------
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font = 'bold 8px Courier New'; ctx.textAlign = 'center';
+  ctx.fillText(isBot ? 'BOT' : 'P1', 0, -36);
+
+  if (ratio <= 0.75) {
+    const sa = (0.75 - ratio) * 0.7;
+    for (let s = 0; s < 2; s++) {
+      ctx.beginPath(); ctx.arc(Math.sin(t*3+s*2)*4, -30-s*5, 4+s*2, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(120,120,120,${sa})`; ctx.fill();
+    }
+  }
+  if (ratio <= 0.25) {
+    for (let f = 0; f < 3; f++) {
+      ctx.beginPath(); ctx.arc(Math.sin(t*8+f*2)*5, -22-Math.abs(Math.sin(t*6+f))*8, 3+Math.sin(t*5+f), 0, Math.PI*2);
+      ctx.fillStyle = f % 2 === 0 ? 'rgba(255,100,0,0.85)' : 'rgba(255,200,0,0.7)'; ctx.fill();
+    }
+  }
+
+  ctx.restore(); // 전체 탱크 위치/회전 context 복원
+}
+
+function drawProjectile(proj) {
+  if (proj.trail.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(proj.trail[0].x, proj.trail[0].y);
+    proj.trail.forEach(pt => ctx.lineTo(pt.x, pt.y));
+    ctx.strokeStyle='rgba(255,200,50,0.25)'; ctx.lineWidth=1.5; ctx.stroke();
+  }
+
+  const angle = Math.atan2(proj.vy, proj.vx);
+  const len=12, w=3;
+  ctx.save();
+  ctx.translate(proj.x, proj.y);
+  ctx.rotate(angle);
+
+  ctx.fillStyle='#ddd';
+  ctx.beginPath();
+  ctx.moveTo(len,0); ctx.lineTo(0,-w); ctx.lineTo(-len*0.6,-w);
+  ctx.lineTo(-len*0.6,w); ctx.lineTo(0,w); ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle='#ff4400';
+  ctx.beginPath();
+  ctx.moveTo(len,0); ctx.lineTo(len*0.3,-w*0.7); ctx.lineTo(len*0.3,w*0.7);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle='#aaa';
+  ctx.beginPath();
+  ctx.moveTo(-len*0.4,-w); ctx.lineTo(-len*0.8,-w*2.5); ctx.lineTo(-len*0.6,-w);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-len*0.4,w); ctx.lineTo(-len*0.8,w*2.5); ctx.lineTo(-len*0.6,w);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle='rgba(255,150,0,0.8)';
+  ctx.beginPath();
+  ctx.moveTo(-len*0.6,-w*0.6); ctx.lineTo(-len*1.1,0); ctx.lineTo(-len*0.6,w*0.6);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawExplosion(exp) {
+  const prog = 1 - exp.life / exp.maxLife;
+  const r = exp.r * (0.3 + prog * 0.7);
+  ctx.save();
+  ctx.globalAlpha = 1 - prog * 0.85;
+  const grad = ctx.createRadialGradient(exp.x,exp.y,0,exp.x,exp.y,r);
+  grad.addColorStop(0,'rgba(255,255,200,1)');
+  grad.addColorStop(0.25,'rgba(255,160,0,0.9)');
+  grad.addColorStop(0.6,'rgba(255,60,0,0.5)');
+  grad.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.beginPath(); ctx.arc(exp.x,exp.y,r,0,Math.PI*2);
+  ctx.fillStyle=grad; ctx.fill();
+  ctx.restore();
+}
+
+function updateUI() {
+  const { player, bot, wind, turn, phase, pwrVal, gameOver } = G;
+  document.getElementById('hp-p').style.width = Math.max(0, player.hp / player.maxHp * 100) + '%';
+  document.getElementById('hptxt-p').textContent = 'HP ' + Math.max(0, player.hp);
+  document.getElementById('hp-b').style.width = Math.max(0, bot.hp / bot.maxHp * 100) + '%';
+  document.getElementById('hptxt-b').textContent = 'HP ' + Math.max(0, bot.hp);
+  document.getElementById('panel-p').className = 'p-panel'+(turn==='player'?' active':'');
+  document.getElementById('panel-b').className = 'p-panel'+(turn==='bot'?' active':'');
+
+  const wa=Math.abs(wind), wd=wind>=0?'→':'←';
+  document.getElementById('wind-arrow').textContent=wd;
+  document.getElementById('wind-txt').textContent='바람 '+wa.toFixed(1);
+  const wb=document.getElementById('wind-box');
+  wb.style.borderColor=wa>4?'#f84':wa>2?'#ffdd00':'#4af';
+
+  if (!gameOver) {
+    if (phase==='flying') document.getElementById('turn-txt').textContent='발사 중...';
+    else if (phase==='botthink') document.getElementById('turn-txt').textContent='봇 생각 중...';
+    else document.getElementById('turn-txt').textContent=turn==='player'?'🔵 플레이어 턴':'🔴 봇 턴';
+  }
+
+  const ground_pitch = -(getTerrainAngle(G.player.x) * 180 / Math.PI);
+  const tank_heading_offset = G.player.facing === 1 ? 0 : 180;
+  const local_barrel_pitch = G.player.angle;
+  const world_barrel_pitch = (ground_pitch * Math.cos(tank_heading_offset * Math.PI / 180)) + local_barrel_pitch;
+  const angleDisplay = Math.round(world_barrel_pitch) + '°';
+  document.getElementById('angle-val').textContent = angleDisplay;
+  const touchAngle = document.getElementById('touch-angle-val');
+  if (touchAngle) {
+    touchAngle.textContent = angleDisplay;
+    touchAngle.style.fontSize = angleDisplay.length > 4 ? '13px' : '16px';
+  }
+
+  const thp = document.getElementById('touch-hp-p');
+  const thpb = document.getElementById('touch-hp-b');
+  if (thp) { thp.style.width = Math.max(0, player.hp/player.maxHp*100)+'%'; document.getElementById('touch-hptxt-p').textContent = Math.max(0,player.hp); }
+  if (thpb) { thpb.style.width = Math.max(0, bot.hp/bot.maxHp*100)+'%'; document.getElementById('touch-hptxt-b').textContent = Math.max(0,bot.hp); }
+  document.getElementById('pwr-val').textContent=Math.round(pwrVal);
+  document.getElementById('pwr-fill').style.width=pwrVal+'%';
+
+  const marker = document.getElementById('pwr-marker');
+  if (G.lastPower) {
+    marker.style.display = 'block';
+    marker.style.left = G.lastPower + '%';
+  } else {
+    marker.style.display = 'none';
+  }
+  document.getElementById('move-bar-fill').style.width=(Math.max(0,MAX_MOVE-G.player.moveUsed)/MAX_MOVE*100)+'%';
+  document.getElementById('move-bar-line').style.width=(Math.max(0,MAX_MOVE-G.player.moveUsed)/MAX_MOVE*100)+'%';
+  document.getElementById('move-bar-line2').style.width=(Math.max(0,MAX_MOVE-G.player.moveUsed)/MAX_MOVE*100)+'%';
+  document.getElementById('pwr-fill2').style.width=pwrVal+'%';
+  document.getElementById('pwr-val2').textContent=Math.round(pwrVal);
+  const marker2 = document.getElementById('pwr-marker2');
+  if (G.lastPower) { marker2.style.display='block'; marker2.style.left=G.lastPower+'%'; }
+  else marker2.style.display='none';
+}
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code==='Space') {
+    e.preventDefault();
+    if (G.gameOver) return;
+    if (G.turn==='player' && G.phase==='move' && !G.gameOver && !G.firing) {
+      if (G.pwrVal >= 3 && !G.pwrCharging) {
+        G.lastPower = G.pwrVal;
+        G.phase = 'flying';
+        fireShot(G.player, G.pwrVal);
+        G.pwrVal = 0;
+      } else if (!G.pwrCharging) {
+        G.pwrCharging = true; G.pwrVal = 0;
+      }
+    }
+  }
+});
+window.addEventListener('keyup', e => {
+  keys[e.code] = false;
+  if (e.code==='Space' && G.pwrCharging) {
+    G.pwrCharging = false;
+    if (G.turn==='player' && G.phase==='move' && G.pwrVal >= 3 && !G.gameOver) {
+      G.lastPower = G.pwrVal;
+      G.phase = 'flying';
+      fireShot(G.player, G.pwrVal);
+      G.pwrVal = 0;
+    }
+  }
+});
+
+function passTurn() {
+  if (G.gameOver || G.turn !== 'player' || G.phase !== 'move') return;
+  nextTurn();
+}
+
+const pwrBg = document.getElementById('pwr-bg');
+function setPowerFromMouse(e) {
+  if (G.gameOver) return;
+  const rect = pwrBg.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width;
+  G.pwrVal = Math.max(0, Math.min(100, x * 100));
+  updateUI();
+}
+
+const pwrBg2 = document.getElementById('pwr-bg2');
+function setPowerFromTouch(e) {
+  if (G.gameOver) return;
+  const rect = pwrBg2.getBoundingClientRect();
+  const touch = e.touches[0] || e.changedTouches[0];
+  const x = (touch.clientX - rect.left) / rect.width;
+  G.pwrVal = Math.max(0, Math.min(100, x * 100));
+  updateUI();
+}
+pwrBg2.addEventListener('touchstart', e => { e.preventDefault(); setPowerFromTouch(e); }, { passive: false });
+pwrBg2.addEventListener('touchmove', e => { e.preventDefault(); setPowerFromTouch(e); }, { passive: false });
+pwrBg2.addEventListener('click', e => { setPowerFromMouse2(e); });
+pwrBg2.addEventListener('mousedown', e => { setPowerFromMouse2(e); });
+pwrBg2.addEventListener('mousemove', e => { if (e.buttons === 1) setPowerFromMouse2(e); });
+
+function setPowerFromMouse2(e) {
+  if (G.gameOver) return;
+  const rect = pwrBg2.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width;
+  G.pwrVal = Math.max(0, Math.min(100, x * 100));
+  updateUI();
+}
+
+pwrBg.addEventListener('click', e => {
+  setPowerFromMouse(e);
+  e.preventDefault();
+});
+pwrBg.addEventListener('mousemove', e => {
+  if (e.buttons === 1) setPowerFromMouse(e); 
+});
+
+initGame();
+requestAnimationFrame(gameLoop);
+
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    r = Math.min(r, w/2, h/2);
+    this.moveTo(x+r, y);
+    this.lineTo(x+w-r, y);
+    this.arcTo(x+w, y, x+w, y+r, r);
+    this.lineTo(x+w, y+h-r);
+    this.arcTo(x+w, y+h, x+w-r, y+h, r);
+    this.lineTo(x+r, y+h);
+    this.arcTo(x, y+h, x, y+h-r, r);
+    this.lineTo(x, y+r);
+    this.arcTo(x, y, x+r, y, r);
+    this.closePath();
+    return this;
+  };
+}
+
+if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+  document.getElementById('touch-controls').style.display = 'flex';
+  resizeWrapper();
+}
+document.getElementById('touch-controls').style.display = 'flex';
+
+const touchKeys = {};
+function setTouchKey(key, val) {
+  touchKeys[key] = val;
+  keys[key] = val;
+}
+
+function addHoldBtn(id, key) {
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  btn.addEventListener('touchstart', e => { e.preventDefault(); setTouchKey(key, true); }, { passive: false });
+  btn.addEventListener('touchend', e => { e.preventDefault(); setTouchKey(key, false); }, { passive: false });
+  btn.addEventListener('touchcancel', e => { e.preventDefault(); setTouchKey(key, false); }, { passive: false });
+  btn.addEventListener('mousedown', e => { setTouchKey(key, true); });
+  btn.addEventListener('mouseup', e => { setTouchKey(key, false); });
+  btn.addEventListener('mouseleave', e => { setTouchKey(key, false); });
+}
+
+addHoldBtn('btn-left', 'ArrowLeft');
+addHoldBtn('btn-right', 'ArrowRight');
+addHoldBtn('btn-up', 'ArrowUp');
+addHoldBtn('btn-down', 'ArrowDown');
+
+function fireBtnPress() {
+  if (G.turn !== 'player' || G.phase !== 'move' || G.gameOver || G.firing) return;
+  if (G.pwrVal >= 3) {
+    G.pwrCharging = false;
+    G.pwrReady = true;
+  } else {
+    G.pwrCharging = true;
+    G.pwrReady = false;
+  }
+}
+
+function fireBtnRelease() {
+  if (G.turn !== 'player' || G.phase !== 'move' || G.gameOver || G.firing) {
+    G.pwrCharging = false;
+    G.pwrReady = false;
+  }
+}
+</script>
+</body>
+</html>
