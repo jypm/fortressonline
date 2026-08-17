@@ -1377,6 +1377,237 @@ function fireBtnRelease() {
     G.pwrReady = false;
   }
 }
+
+// ── Firebase 온라인 멀티플레이 ──
+</script>
+
+<!-- Firebase CDN -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyCmMfEMCcjIjyGl-sayexpJyQG0x0SPllLw",
+  authDomain: "fortressonline.firebaseapp.com",
+  databaseURL: "https://fortressonline-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "fortressonline",
+  storageBucket: "fortressonline.firebasestorage.app",
+  messagingSenderId: "460280281726",
+  appId: "1:460280281726:web:7517ba3defeff17ad4362f"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let myRole = null; // 'host' | 'guest'
+let roomCode = null;
+let actionListener = null;
+
+function genCode() {
+  return Math.random().toString(36).substring(2,8).toUpperCase();
+}
+
+// ── 온라인 시작 UI ──
+function showOnlineUI() {
+  const el = document.createElement('div');
+  el.id = 'online-ui';
+  el.style.cssText = `
+    position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.95);display:flex;flex-direction:column;
+    align-items:center;justify-content:center;z-index:999;
+    font-family:'Courier New',monospace;color:#fff;
+  `;
+  el.innerHTML = `
+    <div style="text-align:center;max-width:300px;width:90%;">
+      <div style="font-size:32px;margin-bottom:8px;">🎮</div>
+      <h2 style="color:#ffdd00;font-size:22px;margin-bottom:24px;">포트리스 온라인</h2>
+      <button onclick="createRoom()" style="
+        width:100%;padding:14px;margin-bottom:12px;
+        background:#4af;color:#000;border:none;border-radius:8px;
+        font-size:16px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;
+      ">🏠 방 만들기</button>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input id="room-input" placeholder="방 코드 입력" maxlength="6" style="
+          flex:1;padding:12px;background:#222;color:#fff;
+          border:2px solid #555;border-radius:8px;font-size:16px;
+          font-family:'Courier New',monospace;text-transform:uppercase;letter-spacing:2px;
+        "/>
+        <button onclick="joinRoom()" style="
+          padding:12px 16px;background:#f84;color:#000;
+          border:none;border-radius:8px;font-size:16px;
+          font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;
+        ">입장</button>
+      </div>
+      <button onclick="startOffline()" style="
+        width:100%;padding:12px;background:#333;color:#aaa;
+        border:1px solid #555;border-radius:8px;font-size:13px;
+        cursor:pointer;font-family:'Courier New',monospace;
+      ">🤖 봇과 플레이</button>
+      <div id="ol-status" style="margin-top:16px;color:#aaa;font-size:13px;line-height:1.6;"></div>
+    </div>
+  `;
+  document.body.appendChild(el);
+}
+
+function setOlStatus(msg) {
+  const el = document.getElementById('ol-status');
+  if (el) el.innerHTML = msg;
+}
+
+function hideOnlineUI() {
+  const el = document.getElementById('online-ui');
+  if (el) el.remove();
+}
+
+function startOffline() {
+  hideOnlineUI();
+  initGame();
+  requestAnimationFrame(gameLoop);
+}
+
+// ── 방 만들기 ──
+async function createRoom() {
+  roomCode = genCode();
+  myRole = 'host';
+  const roomRef = db.ref(`rooms/${roomCode}`);
+
+  await roomRef.set({
+    status: 'waiting',
+    host: { ready: true },
+    guest: null,
+    wind: 0,
+    action: null
+  });
+
+  setOlStatus(`<b style="color:#ffdd00;font-size:18px;letter-spacing:3px;">${roomCode}</b><br>이 코드를 상대방에게 알려주세요!<br><span style="color:#666;">상대방 입장 대기 중...</span>`);
+
+  // 상대방 입장 감지
+  roomRef.child('guest').on('value', snap => {
+    if (snap.val()?.ready) {
+      roomRef.child('guest').off();
+      setOlStatus('상대방 입장! 게임 시작! 🎮');
+      setTimeout(() => startOnlineGame(roomRef), 800);
+    }
+  });
+}
+
+// ── 방 입장 ──
+async function joinRoom() {
+  const input = document.getElementById('room-input');
+  roomCode = input.value.trim().toUpperCase();
+  if (roomCode.length < 4) { setOlStatus('방 코드를 입력하세요!'); return; }
+
+  const roomRef = db.ref(`rooms/${roomCode}`);
+  const snap = await roomRef.once('value');
+  if (!snap.val()) { setOlStatus('❌ 방을 찾을 수 없어요!'); return; }
+  if (snap.val().status !== 'waiting') { setOlStatus('❌ 이미 시작된 방이에요!'); return; }
+
+  myRole = 'guest';
+  await roomRef.child('guest').set({ ready: true });
+  await roomRef.update({ status: 'playing' });
+
+  setOlStatus('입장 완료! 게임 시작! 🎮');
+  setTimeout(() => startOnlineGame(roomRef), 800);
+}
+
+// ── 온라인 게임 시작 ──
+function startOnlineGame(roomRef) {
+  hideOnlineUI();
+  G.isOnline = true;
+  G.myRole = myRole;
+  G.roomRef = roomRef;
+
+  initGame();
+
+  // host=P1(왼쪽), guest=P2(오른쪽)
+  // guest는 봇 위치에 상대방이 있음
+  if (myRole === 'guest') {
+    // 내가 guest면 오른쪽 탱크가 내 탱크
+    const tmp = {...G.player};
+    G.player = {...G.bot, facing: -1};
+    G.bot = {...tmp, facing: 1};
+    G.player.isBot = false;
+    G.bot.isBot = true;
+  }
+
+  // 바람 동기화 (host가 설정)
+  if (myRole === 'host') {
+    roomRef.update({ wind: G.wind });
+  } else {
+    roomRef.child('wind').on('value', snap => {
+      if (snap.val() !== null) G.wind = snap.val();
+    });
+  }
+
+  // 상대방 액션 리스닝
+  roomRef.child('action').on('value', snap => {
+    const action = snap.val();
+    if (!action || action.from === myRole) return;
+    handleRemoteAction(action);
+  });
+
+  // 연결 끊김 시 방 정리
+  roomRef.child(`${myRole}`).onDisconnect().update({ disconnected: true });
+  roomRef.child(`${myRole === 'host' ? 'guest' : 'host'}`).on('value', snap => {
+    if (snap.val()?.disconnected && !G.gameOver) {
+      showOverlay('🔌 상대방 연결 끊김', '상대방이 나갔어요.');
+      G.gameOver = true;
+    }
+  });
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ── 상대방 액션 처리 ──
+function handleRemoteAction(action) {
+  const opponent = G.bot;
+  if (action.type === 'state') {
+    opponent.x = action.x;
+    opponent.y = action.y;
+    opponent.facing = action.facing;
+    opponent.angle = action.angle;
+    opponent.moveUsed = action.moveUsed;
+  } else if (action.type === 'fire') {
+    opponent.angle = action.angle;
+    opponent.facing = action.facing;
+    G.wind = action.wind;
+    fireShot(opponent, action.power);
+  } else if (action.type === 'hp') {
+    G.player.hp = action.hp;
+    updateUI();
+    checkGameOver();
+  } else if (action.type === 'pass') {
+    G.wind = action.wind;
+    onlineTurnEnd();
+  }
+}
+
+// ── 내 액션 전송 ──
+function sendAction(type, data) {
+  if (!G.isOnline || !G.roomRef) return;
+  G.roomRef.child('action').set({ from: myRole, type, ...data, ts: Date.now() });
+}
+
+// ── 온라인 턴 종료 ──
+function onlineTurnEnd() {
+  G.turn = 'player';
+  G.phase = 'move';
+  G.pwrVal = 0;
+  G.pwrCharging = false;
+  G.firing = false;
+  G.player.moveUsed = 0;
+  updateUI();
+}
+
+// 내 턴인지 확인
+function isMyOnlineTurn() {
+  if (!G.isOnline) return true;
+  if (myRole === 'host') return G.turn === 'player';
+  if (myRole === 'guest') return G.turn === 'player';
+  return true;
+}
+
+// 게임 시작
+showOnlineUI();
 </script>
 </body>
 </html>
