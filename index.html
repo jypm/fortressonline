@@ -1375,7 +1375,31 @@ function fireBtnRelease() {
   if (G.turn !== 'player' || G.phase !== 'move' || G.gameOver || G.firing) {
     G.pwrCharging = false;
     G.pwrReady = false;
+    return;
   }
+  // 정상 상태: 파워가 충분하면 발사
+  if (G.pwrVal >= 3) {
+    G.lastPower = G.pwrVal;
+    G.phase = 'flying';
+    G.pwrCharging = false;
+    G.pwrReady = false;
+    fireShot(G.player, G.pwrVal);
+    G.pwrVal = 0;
+  } else {
+    G.pwrCharging = false;
+    G.pwrReady = false;
+  }
+}
+
+// btn-fire 이벤트 리스너 등록
+const fireBtn = document.getElementById('btn-fire');
+if (fireBtn) {
+  fireBtn.addEventListener('touchstart', e => { e.preventDefault(); fireBtnPress(); }, { passive: false });
+  fireBtn.addEventListener('touchend',   e => { e.preventDefault(); fireBtnRelease(); }, { passive: false });
+  fireBtn.addEventListener('touchcancel',e => { e.preventDefault(); G.pwrCharging = false; G.pwrReady = false; }, { passive: false });
+  fireBtn.addEventListener('mousedown',  e => { fireBtnPress(); });
+  fireBtn.addEventListener('mouseup',    e => { fireBtnRelease(); });
+  fireBtn.addEventListener('mouseleave', e => { G.pwrCharging = false; G.pwrReady = false; });
 }
 
 // ── Firebase 온라인 멀티플레이 ──
