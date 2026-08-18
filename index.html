@@ -1992,6 +1992,15 @@ function startOnlineGame(roomRef, seed, initWind, hostX, guestX) {
   if (lp) lp.textContent = '🔵 나';
   if (lb) lb.textContent = '🔴 상대';
 
+  // 한명이 나가면 상대방도 채팅방으로
+  roomRef.child('returnToRoom').on('value', snap => {
+    if (!snap.val()) return;
+    roomRef.child('returnToRoom').off();
+    if (!document.getElementById('online-ui')) {
+      _returnToRoom();
+    }
+  });
+
   showTurnNotice(myRole==='host'?'🔵 내 턴!':'⏳ 상대 턴...');
 
   // 게임중 나가기 버튼 표시
@@ -2251,30 +2260,32 @@ if (G.bot.targetX !== undefined) {
 
 // ── 채팅방으로 돌아가기 ──
 async function leaveToRoom() {
+  // 확인창
+  if (!confirm('정말 나가시겠어요?\n상대방도 채팅방으로 이동됩니다.')) return;
+
   if (!roomCode) { location.reload(); return; }
   const roomRef = db.ref(`rooms/${roomCode}`);
 
-  // 상대방에게 나갔다고 알림
-  if (G && G.isOnline) {
-    await roomRef.child('chat').push({
-      uid: 'system', nick: '시스템',
-      msg: `${myNick}님이 나갔어요.`, at: Date.now()
-    });
-    // 방 상태 다시 waiting으로 (상대방도 채팅방으로)
-    await roomRef.update({
-      status: 'waiting',
-      guest: null,
-      events: null,
-      lastMove: null,
-      gameOver: null,
-      restart: null
-    });
-  }
+  // Firebase에 나가기 신호 전송 (상대방도 감지)
+  await roomRef.child('chat').push({
+    uid: 'system', nick: '시스템',
+    msg: `${myNick}님이 나갔어요.`, at: Date.now()
+  });
+  await roomRef.update({
+    status: 'waiting',
+    guest: myRole === 'host' ? null : undefined,
+    events: null, lastMove: null,
+    gameOver: null, restart: null,
+    returnToRoom: { by: myNick, at: Date.now() }
+  });
 
-  // 화면 정리
+  _returnToRoom();
+}
+
+// 실제 채팅방 복귀 처리
+function _returnToRoom() {
   unlockOrientation();
-  G = {};
-  G.isOnline = false;
+  if (G) { G.gameOver = true; G.isOnline = false; }
 
   // 캔버스 클리어
   const canvas = document.getElementById('gameCanvas');
@@ -2282,26 +2293,22 @@ async function leaveToRoom() {
   if (canvas) canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
   if (tCanvas) tCanvas.getContext('2d').clearRect(0,0,tCanvas.width,tCanvas.height);
 
-  // 게임중 나가기 버튼 숨기기
+  // 버튼 정리
   const leaveBtn = document.getElementById('ingame-leave');
   if (leaveBtn) leaveBtn.style.display = 'none';
-
-  // 오버레이 숨기기
   document.getElementById('overlay').style.display = 'none';
 
-  // 채팅방 다시 표시
+  // 채팅방으로
+  showOnlineUIDiv();
   const roomRef2 = db.ref(`rooms/${roomCode}`);
-  const snap = await roomRef2.once('value');
-  const data = snap.val();
-  if (data) {
-    // 방이 아직 있으면 채팅방으로
-    showOnlineUIDiv();
-    showRoomUI(roomRef2, data.seed, data.wind, data.hostX, data.guestX);
-  } else {
-    // 방이 없으면 로비로
-    showOnlineUIDiv();
-    showLobbyUI();
-  }
+  roomRef2.once('value').then(snap => {
+    const data = snap.val();
+    if (data) {
+      showRoomUI(roomRef2, data.seed, data.wind, data.hostX, data.guestX);
+    } else {
+      showLobbyUI();
+    }
+  });
 }
 
 function showOnlineUIDiv() {
