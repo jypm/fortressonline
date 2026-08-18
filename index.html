@@ -1587,23 +1587,30 @@ function showLobbyUI() {
   if (!el) return;
   el.innerHTML = `
     <div style="width:100%;max-width:480px;height:100vh;display:flex;flex-direction:column;padding:16px;box-sizing:border-box;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <h2 style="color:#ffdd00;font-size:20px;margin:0;">🎮 로비</h2>
         <span style="color:#4af;font-size:14px;">👤 ${myNick}</span>
       </div>
 
+      <!-- 접속자 목록 -->
+      <div style="color:#aaa;font-size:11px;margin-bottom:4px;">🟢 접속중</div>
+      <div id="user-list" style="
+        background:#111;border:1px solid #333;border-radius:8px;
+        padding:8px;margin-bottom:12px;min-height:36px;
+        display:flex;flex-wrap:wrap;gap:6px;"></div>
+
       <!-- 방 만들기 -->
-      <button onclick="createRoom()" style="
+      <button onclick="showCreateRoomModal()" style="
         width:100%;padding:14px;margin-bottom:12px;
         background:#4af;color:#000;border:none;border-radius:8px;
         font-size:16px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">
         🏠 방 만들기</button>
 
       <!-- 방 목록 -->
-      <div style="color:#aaa;font-size:12px;margin-bottom:6px;">📋 방 목록</div>
+      <div style="color:#aaa;font-size:11px;margin-bottom:6px;">📋 방 목록</div>
       <div id="room-list" style="
         flex:1;overflow-y:auto;border:1px solid #333;border-radius:8px;
-        background:#111;min-height:200px;max-height:340px;">
+        background:#111;min-height:150px;">
         <div style="padding:20px;text-align:center;color:#444;">방을 불러오는 중...</div>
       </div>
 
@@ -1613,34 +1620,125 @@ function showLobbyUI() {
         cursor:pointer;font-family:'Courier New',monospace;">🤖 봇과 플레이</button>
     </div>`;
 
-  // 방 목록 실시간 감지
+  // 접속자 목록 실시간
+  db.ref('lobby/users').on('value', snap => {
+    const users = snap.val() || {};
+    const listEl = document.getElementById('user-list');
+    if (!listEl) return;
+    const entries = Object.values(users);
+    if (entries.length === 0) {
+      listEl.innerHTML = '<span style="color:#444;font-size:12px;">없음</span>';
+      return;
+    }
+    listEl.innerHTML = entries.map(u => `
+      <span style="background:${u.nick===myNick?'#1a3a5a':'#1a1a2a'};
+        color:${u.nick===myNick?'#4af':'#aaa'};
+        padding:3px 8px;border-radius:10px;font-size:12px;">
+        ${u.nick===myNick?'👤':''}${u.nick}</span>`).join('');
+  });
+
+  // 방 목록 실시간
   db.ref('rooms').on('value', snap => {
     const rooms = snap.val() || {};
     const listEl = document.getElementById('room-list');
     if (!listEl) return;
-
     const waiting = Object.entries(rooms).filter(([k,v]) => v.status === 'waiting');
     if (waiting.length === 0) {
       listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#444;">열린 방이 없어요</div>';
       return;
     }
-    listEl.innerHTML = waiting.map(([code, room]) => `
+    listEl.innerHTML = waiting.map(([code, room]) => {
+      const maxP = room.maxPlayers || 2;
+      const curP = (room.host?1:0) + (room.guest?1:0);
+      const isFull = curP >= maxP;
+      return `
       <div style="display:flex;align-items:center;justify-content:space-between;
         padding:12px 14px;border-bottom:1px solid #222;">
         <div>
-          <div style="color:#fff;font-size:14px;font-weight:bold;">${room.hostNick||'???'}의 방</div>
-          <div style="color:#666;font-size:11px;">코드: ${code}</div>
+          <div style="color:#fff;font-size:14px;font-weight:bold;">${room.title||room.hostNick+'의 방'}</div>
+          <div style="color:#666;font-size:11px;">
+            ${maxP===4?'👥 4인방':'👤 2인방'} · ${curP}/${maxP}명
+            ${maxP===4?'<span style="color:#f84;"> · 채팅전용</span>':''}
+          </div>
         </div>
-        <button onclick="joinRoom('${code}')" style="
-          padding:8px 14px;background:#f84;color:#000;border:none;
-          border-radius:6px;font-size:13px;font-weight:bold;
-          cursor:pointer;font-family:'Courier New',monospace;">입장</button>
-      </div>`).join('');
+        <button onclick="joinRoom('${code}')" ${isFull?'disabled':''} style="
+          padding:8px 14px;background:${isFull?'#333':'#f84'};color:${isFull?'#666':'#000'};
+          border:none;border-radius:6px;font-size:13px;font-weight:bold;
+          cursor:${isFull?'not-allowed':'pointer'};font-family:'Courier New',monospace;">
+          ${isFull?'만원':'입장'}</button>
+      </div>`;
+    }).join('');
   });
+}
+
+// ── 방 만들기 모달 ──
+function showCreateRoomModal() {
+  const modal = document.createElement('div');
+  modal.id = 'create-modal';
+  modal.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.85);display:flex;align-items:center;
+    justify-content:center;z-index:1000;`;
+  modal.innerHTML = `
+    <div style="background:#1a1a2a;border:1px solid #444;border-radius:12px;
+      padding:24px;width:90%;max-width:320px;">
+      <h3 style="color:#ffdd00;margin:0 0 16px;font-size:18px;">🏠 방 만들기</h3>
+      <div style="margin-bottom:12px;">
+        <div style="color:#aaa;font-size:12px;margin-bottom:6px;">방 제목</div>
+        <input id="room-title" placeholder="${myNick}의 방" maxlength="20" style="
+          width:100%;padding:10px;background:#222;color:#fff;
+          border:1px solid #555;border-radius:6px;font-size:14px;
+          font-family:'Courier New',monospace;box-sizing:border-box;"/>
+      </div>
+      <div style="margin-bottom:20px;">
+        <div style="color:#aaa;font-size:12px;margin-bottom:8px;">인원</div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="selectPlayers(2)" id="btn-2p" style="
+            flex:1;padding:12px;background:#4af;color:#000;
+            border:2px solid #4af;border-radius:8px;font-size:14px;
+            font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">
+            👤 2명</button>
+          <button onclick="selectPlayers(4)" id="btn-4p" style="
+            flex:1;padding:12px;background:#222;color:#aaa;
+            border:2px solid #444;border-radius:8px;font-size:14px;
+            font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">
+            👥 4명<br><span style="font-size:10px;color:#f84;">채팅전용</span></button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="document.getElementById('create-modal').remove()" style="
+          flex:1;padding:12px;background:#333;color:#aaa;
+          border:1px solid #555;border-radius:8px;font-size:14px;
+          cursor:pointer;font-family:'Courier New',monospace;">취소</button>
+        <button onclick="createRoom()" style="
+          flex:1;padding:12px;background:#4af;color:#000;
+          border:none;border-radius:8px;font-size:14px;font-weight:bold;
+          cursor:pointer;font-family:'Courier New',monospace;">만들기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  window._selectedPlayers = 2;
+}
+
+function selectPlayers(n) {
+  window._selectedPlayers = n;
+  document.getElementById('btn-2p').style.background = n===2?'#4af':'#222';
+  document.getElementById('btn-2p').style.color = n===2?'#000':'#aaa';
+  document.getElementById('btn-2p').style.borderColor = n===2?'#4af':'#444';
+  document.getElementById('btn-4p').style.background = n===4?'#f84':'#222';
+  document.getElementById('btn-4p').style.color = n===4?'#000':'#aaa';
+  document.getElementById('btn-4p').style.borderColor = n===4?'#f84':'#444';
 }
 
 // ── 방 만들기 ──
 async function createRoom() {
+  const titleInput = document.getElementById('room-title');
+  const title = titleInput ? (titleInput.value.trim() || `${myNick}의 방`) : `${myNick}의 방`;
+  const maxPlayers = window._selectedPlayers || 2;
+
+  // 모달 닫기
+  const modal = document.getElementById('create-modal');
+  if (modal) modal.remove();
+
   roomCode = genCode();
   myRole = 'host';
   const roomRef = db.ref(`rooms/${roomCode}`);
@@ -1654,10 +1752,9 @@ async function createRoom() {
   await roomRef.set({
     status:'waiting', seed, wind:initWind,
     hostX:px, guestX:bx,
-    hostNick:myNick,
+    hostNick:myNick, title, maxPlayers,
     host:{uid:myUid, nick:myNick, ready:true},
-    guest:null, events:null, lastMove:null,
-    chat:null
+    guest:null, events:null, lastMove:null, chat:null
   });
   roomRef.onDisconnect().remove();
 
@@ -1672,6 +1769,9 @@ async function joinRoom(code) {
   const data = snap.val();
   if (!data) { alert('방을 찾을 수 없어요!'); return; }
   if (data.status !== 'waiting') { alert('이미 시작된 방이에요!'); return; }
+  const maxP = data.maxPlayers || 2;
+  const curP = (data.host?1:0) + (data.guest?1:0);
+  if (curP >= maxP) { alert('방이 꽉 찼어요!'); return; }
   myRole = 'guest';
   await roomRef.child('guest').set({uid:myUid, nick:myNick, ready:false});
   showRoomUI(roomRef, data.seed, data.wind, data.hostX, data.guestX);
@@ -1761,7 +1861,11 @@ function showRoomUI(roomRef, seed, initWind, px, bx) {
     // 버튼 영역
     const btnArea = document.getElementById('room-btn-area');
     if (btnArea) {
-      if (myRole === 'host') {
+      const maxP = data.maxPlayers || 2;
+      if (maxP === 4) {
+        btnArea.innerHTML = `<div style="text-align:center;color:#f84;font-size:13px;padding:10px;">
+          👥 4인 채팅방 · 게임 불가 (추후 2대2 지원 예정)</div>`;
+      } else if (myRole === 'host') {
         const guestReady = data.guest?.ready === true;
         const hasGuest = !!data.guest;
         btnArea.innerHTML = `<button onclick="startOnlineGameFromRoom()" ${(!hasGuest||!guestReady)?'disabled':''} style="
@@ -1827,10 +1931,20 @@ function sendChat() {
   });
 }
 
-// 방 나가기
+// 방 나가기 → 로비로
 async function leaveRoom() {
-  await db.ref(`rooms/${roomCode}`).remove();
-  location.reload();
+  if (!confirm('방에서 나가시겠어요?')) return;
+  const roomRef = db.ref(`rooms/${roomCode}`);
+  if (myRole === 'host') {
+    await roomRef.remove();
+  } else {
+    await roomRef.child('guest').remove();
+  }
+  roomCode = null;
+  myRole = null;
+  // 로비로
+  showOnlineUIDiv();
+  showLobbyUI();
 }
 
 // HTML 이스케이프
@@ -1965,7 +2079,7 @@ function startOnlineGame(roomRef, seed, initWind, hostX, guestX) {
     // 양쪽 다 눌렀으면 새 게임
     if (d.host === true && d.guest === true) {
       roomRef.child('restart').off();
-      if (myRole === 'host') {
+      } else if (myRole === 'host') {
         const newSeed = Math.floor(Math.random() * 1000000);
         const newWind = (Math.random() - 0.5) * 10;
         buildSkyMapWithSeed(newSeed);
