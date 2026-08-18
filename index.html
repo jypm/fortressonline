@@ -3,7 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>포트리스 웹</title>
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="포트리스">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<title>포트리스 온라인</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 @keyframes fadeInOut {
@@ -103,7 +109,7 @@ body {
   <div id="ui-top" style="position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:6px 40px;pointer-events:none;">
     <!-- P1 HP 좌측 -->
     <div style="display:flex;flex-direction:column;gap:4px;min-width:150px;">
-      <div style="font-size:16px;color:#4af;font-weight:bold;letter-spacing:1px;text-shadow:1px 1px 4px #000;">🔵 P1</div>
+      <div id="label-p" style="font-size:16px;color:#4af;font-weight:bold;letter-spacing:1px;text-shadow:1px 1px 4px #000;">🔵 P1</div>
       <div style="height:14px;background:rgba(0,0,0,0.4);border-radius:5px;overflow:hidden;width:150px;border:1px solid #4af;">
         <div id="touch-hp-p" style="height:14px;background:#4af;width:100%;transition:width 0.3s;"></div>
       </div>
@@ -116,7 +122,7 @@ body {
     </div>
     <!-- BOT HP 우측 -->
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:150px;">
-      <div style="font-size:16px;color:#f84;font-weight:bold;letter-spacing:1px;text-shadow:1px 1px 4px #000;">BOT 🔴</div>
+      <div id="label-b" style="font-size:16px;color:#f84;font-weight:bold;letter-spacing:1px;text-shadow:1px 1px 4px #000;">BOT 🔴</div>
       <div style="height:14px;background:rgba(0,0,0,0.4);border-radius:5px;overflow:hidden;width:150px;border:1px solid #f84;">
         <div id="touch-hp-b" style="height:14px;background:#f84;width:100%;transition:width 0.3s;"></div>
       </div>
@@ -145,8 +151,24 @@ body {
     <div id="overlay-box">
       <h2 id="ov-title">게임 종료!</h2>
       <p id="ov-body">승리!</p>
-      <button id="restart-btn" onclick="initGame()">다시 시작</button>
+      <button id="restart-btn" onclick="restartGame()">다시 시작</button>
+      <button id="leave-btn" onclick="leaveToRoom()" style="
+        margin-top:8px; padding:8px 20px; background:#555; color:#ccc;
+        border:1px solid #888; border-radius:6px; font-size:13px;
+        cursor:pointer; font-family:'Courier New',monospace; display:none;
+      ">🚪 채팅방으로</button>
     </div>
+  </div>
+
+  <!-- 게임중 나가기 버튼 -->
+  <div id="ingame-leave" style="
+    position:absolute; top:8px; right:8px; display:none; pointer-events:all; z-index:50;
+  ">
+    <button onclick="leaveToRoom()" style="
+      padding:5px 10px; background:rgba(80,80,80,0.8); color:#ccc;
+      border:1px solid #666; border-radius:5px; font-size:11px;
+      cursor:pointer; font-family:'Courier New',monospace;
+    ">🚪 나가기</button>
   </div>
 
   <!-- 터치 UI 하단 -->
@@ -673,8 +695,6 @@ function update(dt) {
   }
 
   if (G.turn !== 'player' || G.phase !== 'move') {
-    if (keys['ArrowLeft']) player.facing = -1;
-    if (keys['ArrowRight']) player.facing = 1;
     if (keys['ArrowUp'])   player.angle = Math.min(ANGLE_RANGE, player.angle + ANGLE_SPEED * dt);
     if (keys['ArrowDown']) player.angle = Math.max(ANGLE_MIN, player.angle - ANGLE_SPEED * dt);
     if (G.pwrCharging) G.pwrVal = Math.min(100, G.pwrVal + dt * 70);
@@ -815,10 +835,14 @@ function update(dt) {
       G.projectiles.splice(i, 1);
       if (G.projectiles.length === 0 && G.firing) {
         G.firing = false;
-        setTimeout(() => {
-          if (checkGameOver()) return;
-          setTimeout(nextTurn, 400);
-        }, 350);
+        if (!G.isOnline) {
+          // 오프라인 전용: nextTurn 호출
+          setTimeout(() => {
+            if (checkGameOver()) return;
+            setTimeout(nextTurn, 400);
+          }, 350);
+        }
+        // 온라인: update() 오버라이드 내 waitProjectiles 콜백이 처리
       }
     }
   }
@@ -870,27 +894,65 @@ function nextTurn() {
 
 function checkGameOver() {
   if (G.gameOver) return false;
+
+  let result = null;
   if (G.player.hp <= 0 && G.bot.hp <= 0) {
-    showOverlay('💥 무승부!', '둘 다 격파됐습니다!'); G.gameOver = true; return true;
+    result = 'draw';
+  } else if (G.player.hp <= 0) {
+    result = 'lose';
+  } else if (G.bot.hp <= 0) {
+    result = 'win';
   }
-  if (G.player.hp <= 0) {
+  if (!result) return false;
+
+  G.gameOver = true;
+
+  // 온라인: 상대방에게도 결과 전송 (내가 먼저 감지한 쪽이 push)
+  if (G.isOnline && G.roomRef) {
+    G.roomRef.child('gameOver').set({ result, from: myRole, ts: Date.now() });
+  }
+
+  _applyGameOver(result);
+  return true;
+}
+
+function _applyGameOver(result) {
+  if (result === 'draw') {
+    showOverlay('💥 무승부!', '둘 다 격파됐습니다!');
+  } else if (result === 'lose') {
     playSound('fall');
-    showOverlay('💥 봇 승리!', '플레이어 탱크가 격파됐습니다!'); G.gameOver = true; return true;
-  }
-  if (G.bot.hp <= 0) {
+    const msg = G.isOnline ? ['💥 패배!', '내 탱크가 격파됐습니다!'] : ['💥 봇 승리!', '플레이어 탱크가 격파됐습니다!'];
+    showOverlay(msg[0], msg[1]);
+  } else if (result === 'win') {
     playSound('win');
-    showOverlay('🏆 플레이어 승리!', '봇 탱크를 격파했습니다!'); G.gameOver = true; return true;
+    const msg = G.isOnline ? ['🏆 승리!', '상대 탱크를 격파했습니다!'] : ['🏆 플레이어 승리!', '봇 탱크를 격파했습니다!'];
+    showOverlay(msg[0], msg[1]);
   }
-  return false;
+}
+
+// 다시 시작
+function restartGame() {
+  if (G.isOnline && G.roomRef) {
+    // 내가 재시작 요청을 Firebase에 기록
+    G.roomRef.child('restart').child(myRole).set(true);
+    const btn = document.getElementById('restart-btn');
+    btn.textContent = '⏳ 상대방 대기 중...';
+    btn.disabled = true;
+  } else {
+    initGame();
+    requestAnimationFrame(gameLoop);
+  }
 }
 
 function showOverlay(t, b) {
   document.getElementById('ov-title').textContent = t;
   document.getElementById('ov-body').textContent = b;
-  document.getElementById('restart-btn').style.display = 'none';
-  document.getElementById('overlay').style.display = 'flex';
-  let count = 10;
   const btn = document.getElementById('restart-btn');
+  btn.style.display = 'none';
+  // 온라인이면 버튼 텍스트를 "다시 시작 요청"으로
+  btn.textContent = G.isOnline ? '🔄 다시 시작 요청' : '다시 시작';
+  document.getElementById('overlay').style.display = 'flex';
+  let count = 5;
   const timer = setInterval(() => {
     count--;
     document.getElementById('ov-body').textContent = `${b} (${count}초 후 재시작 가능)`;
@@ -1195,9 +1257,15 @@ function updateUI() {
   wb.style.borderColor=wa>4?'#f84':wa>2?'#ffdd00':'#4af';
 
   if (!gameOver) {
-    if (phase==='flying') document.getElementById('turn-txt').textContent='발사 중...';
-    else if (phase==='botthink') document.getElementById('turn-txt').textContent='봇 생각 중...';
-    else document.getElementById('turn-txt').textContent=turn==='player'?'🔵 플레이어 턴':'🔴 봇 턴';
+    if (G.isOnline) {
+      if (phase==='flying') document.getElementById('turn-txt').textContent='💥 발사 중...';
+      else if (phase==='wait') document.getElementById('turn-txt').textContent='⏳ 상대방 턴...';
+      else document.getElementById('turn-txt').textContent='🔵 내 턴!';
+    } else {
+      if (phase==='flying') document.getElementById('turn-txt').textContent='발사 중...';
+      else if (phase==='botthink') document.getElementById('turn-txt').textContent='봇 생각 중...';
+      else document.getElementById('turn-txt').textContent=turn==='player'?'🔵 플레이어 턴':'🔴 봇 턴';
+    }
   }
 
   const ground_pitch = -(getTerrainAngle(G.player.x) * 180 / Math.PI);
@@ -1214,8 +1282,13 @@ function updateUI() {
 
   const thp = document.getElementById('touch-hp-p');
   const thpb = document.getElementById('touch-hp-b');
-  if (thp) { thp.style.width = Math.max(0, player.hp/player.maxHp*100)+'%'; document.getElementById('touch-hptxt-p').textContent = Math.max(0,player.hp); }
-  if (thpb) { thpb.style.width = Math.max(0, bot.hp/bot.maxHp*100)+'%'; document.getElementById('touch-hptxt-b').textContent = Math.max(0,bot.hp); }
+  // 온라인: guest일 때도 왼쪽=내 HP, 오른쪽=상대 HP로 고정
+  const myHp  = G.player ? G.player.hp  : player.hp;
+  const oppHp = G.bot    ? G.bot.hp     : bot.hp;
+  const myMaxHp  = G.player ? G.player.maxHp  : player.maxHp;
+  const oppMaxHp = G.bot    ? G.bot.maxHp     : bot.maxHp;
+  if (thp) { thp.style.width = Math.max(0, myHp/myMaxHp*100)+'%'; document.getElementById('touch-hptxt-p').textContent = Math.max(0,myHp); }
+  if (thpb) { thpb.style.width = Math.max(0, oppHp/oppMaxHp*100)+'%'; document.getElementById('touch-hptxt-b').textContent = Math.max(0,oppHp); }
   document.getElementById('pwr-val').textContent=Math.round(pwrVal);
   document.getElementById('pwr-fill').style.width=pwrVal+'%';
 
@@ -1244,10 +1317,10 @@ window.addEventListener('keydown', e => {
     if (G.gameOver) return;
     if (G.turn==='player' && G.phase==='move' && !G.gameOver && !G.firing) {
       if (G.pwrVal >= 3 && !G.pwrCharging) {
-        G.lastPower = G.pwrVal;
-        G.phase = 'flying';
-        fireShot(G.player, G.pwrVal);
-        G.pwrVal = 0;
+        const pwr = G.pwrVal;
+        G.lastPower = pwr; G.phase = 'flying'; G.pwrVal = 0;
+        if (G.isOnline) onlineFire(pwr);
+        else { fireShot(G.player, pwr); }
       } else if (!G.pwrCharging) {
         G.pwrCharging = true; G.pwrVal = 0;
       }
@@ -1259,17 +1332,18 @@ window.addEventListener('keyup', e => {
   if (e.code==='Space' && G.pwrCharging) {
     G.pwrCharging = false;
     if (G.turn==='player' && G.phase==='move' && G.pwrVal >= 3 && !G.gameOver) {
-      G.lastPower = G.pwrVal;
-      G.phase = 'flying';
-      fireShot(G.player, G.pwrVal);
-      G.pwrVal = 0;
+      const pwr = G.pwrVal;
+      G.lastPower = pwr; G.phase = 'flying'; G.pwrVal = 0;
+      if (G.isOnline) onlineFire(pwr);
+      else { fireShot(G.player, pwr); }
     }
   }
 });
 
 function passTurn() {
   if (G.gameOver || G.turn !== 'player' || G.phase !== 'move') return;
-  nextTurn();
+  if (G.isOnline) onlinePass();
+  else nextTurn();
 }
 
 const pwrBg = document.getElementById('pwr-bg');
@@ -1312,8 +1386,7 @@ pwrBg.addEventListener('mousemove', e => {
   if (e.buttons === 1) setPowerFromMouse(e); 
 });
 
-initGame();
-requestAnimationFrame(gameLoop);
+// Firebase 로드 후 showOnlineUI()에서 시작함 (아래 스크립트 블록)
 
 if (!CanvasRenderingContext2D.prototype.roundRect) {
   CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
@@ -1373,21 +1446,16 @@ function fireBtnPress() {
 
 function fireBtnRelease() {
   if (G.turn !== 'player' || G.phase !== 'move' || G.gameOver || G.firing) {
-    G.pwrCharging = false;
-    G.pwrReady = false;
-    return;
+    G.pwrCharging = false; G.pwrReady = false; return;
   }
-  // 정상 상태: 파워가 충분하면 발사
   if (G.pwrVal >= 3) {
-    G.lastPower = G.pwrVal;
-    G.phase = 'flying';
-    G.pwrCharging = false;
-    G.pwrReady = false;
-    fireShot(G.player, G.pwrVal);
-    G.pwrVal = 0;
+    const pwr = G.pwrVal;
+    G.lastPower = pwr; G.phase = 'flying';
+    G.pwrCharging = false; G.pwrReady = false; G.pwrVal = 0;
+    if (G.isOnline) onlineFire(pwr);
+    else fireShot(G.player, pwr);
   } else {
-    G.pwrCharging = false;
-    G.pwrReady = false;
+    G.pwrCharging = false; G.pwrReady = false;
   }
 }
 
@@ -1410,6 +1478,17 @@ if (fireBtn) {
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <script>
+// =====================================================
+// 온라인 멀티플레이 - 완전 재설계
+// 설계 원칙:
+//   - host = 왼쪽(파란) 탱크, 먼저 시작
+//   - guest = 오른쪽(빨간) 탱크, 나중에 시작
+//   - 양쪽 모두 자신이 G.player, 상대가 G.bot
+//   - 이벤트 기반: fire/pass 이벤트를 Firebase에 push
+//   - 이동: lastMove로 실시간 위치 동기화
+//   - 지형파괴: 발사 이벤트에 충돌좌표+방향 포함, 양쪽에서 동일 계산
+// =====================================================
+
 const firebaseConfig = {
   apiKey: "AIzaSyCmMfEMCcjIjyGl-sayexpJyQG0x0SPllLw",
   authDomain: "fortressonline.firebaseapp.com",
@@ -1422,70 +1501,139 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-let myRole = null; // 'host' | 'guest'
+let myRole = null;
 let roomCode = null;
-let actionListener = null;
+let gameStartTime = 0;
 
 function genCode() {
   return Math.random().toString(36).substring(2,8).toUpperCase();
 }
 
-// ── 온라인 시작 UI ──
+let myNick = '';
+let myUid = 'u' + Math.random().toString(36).substring(2,10);
+
+// ── 닉네임 입력 화면 ──
 function showOnlineUI() {
   const el = document.createElement('div');
   el.id = 'online-ui';
-  el.style.cssText = `
-    position:fixed;top:0;left:0;right:0;bottom:0;
-    background:rgba(0,0,0,0.95);display:flex;flex-direction:column;
+  el.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.97);display:flex;flex-direction:column;
     align-items:center;justify-content:center;z-index:999;
-    font-family:'Courier New',monospace;color:#fff;
-  `;
+    font-family:'Courier New',monospace;color:#fff;`;
   el.innerHTML = `
-    <div style="text-align:center;max-width:300px;width:90%;">
-      <div style="font-size:32px;margin-bottom:8px;">🎮</div>
-      <h2 style="color:#ffdd00;font-size:22px;margin-bottom:24px;">포트리스 온라인</h2>
-      <button onclick="createRoom()" style="
+    <div style="text-align:center;max-width:320px;width:90%;">
+      <div style="font-size:40px;margin-bottom:8px;">🎮</div>
+      <h2 style="color:#ffdd00;font-size:24px;margin-bottom:6px;">포트리스 온라인</h2>
+      <p style="color:#666;font-size:12px;margin-bottom:24px;">아는 사람끼리 즐기는 포트리스</p>
+      <input id="nick-input" placeholder="닉네임 입력" maxlength="10" style="
         width:100%;padding:14px;margin-bottom:12px;
-        background:#4af;color:#000;border:none;border-radius:8px;
-        font-size:16px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;
-      ">🏠 방 만들기</button>
-      <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <input id="room-input" placeholder="방 코드 입력" maxlength="6" style="
-          flex:1;padding:12px;background:#222;color:#fff;
-          border:2px solid #555;border-radius:8px;font-size:16px;
-          font-family:'Courier New',monospace;text-transform:uppercase;letter-spacing:2px;
-        "/>
-        <button onclick="joinRoom()" style="
-          padding:12px 16px;background:#f84;color:#000;
-          border:none;border-radius:8px;font-size:16px;
-          font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;
-        ">입장</button>
-      </div>
+        background:#222;color:#fff;border:2px solid #4af;
+        border-radius:8px;font-size:18px;text-align:center;
+        font-family:'Courier New',monospace;box-sizing:border-box;"/>
+      <button onclick="enterLobby()" style="
+        width:100%;padding:14px;background:#4af;color:#000;
+        border:none;border-radius:8px;font-size:16px;
+        font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;
+        margin-bottom:12px;">입장하기 →</button>
       <button onclick="startOffline()" style="
-        width:100%;padding:12px;background:#333;color:#aaa;
-        border:1px solid #555;border-radius:8px;font-size:13px;
-        cursor:pointer;font-family:'Courier New',monospace;
-      ">🤖 봇과 플레이</button>
-      <div id="ol-status" style="margin-top:16px;color:#aaa;font-size:13px;line-height:1.6;"></div>
-    </div>
-  `;
+        width:100%;padding:10px;background:#222;color:#888;
+        border:1px solid #444;border-radius:8px;font-size:13px;
+        cursor:pointer;font-family:'Courier New',monospace;">🤖 봇과 플레이</button>
+      <div id="ol-status" style="margin-top:12px;color:#f84;font-size:13px;"></div>
+    </div>`;
   document.body.appendChild(el);
+  setTimeout(()=>{ const i=document.getElementById('nick-input'); if(i) i.focus(); },100);
+  document.addEventListener('keydown', function nickEnter(e) {
+    if (e.key==='Enter') { document.removeEventListener('keydown',nickEnter); enterLobby(); }
+  });
 }
 
 function setOlStatus(msg) {
   const el = document.getElementById('ol-status');
   if (el) el.innerHTML = msg;
 }
-
 function hideOnlineUI() {
   const el = document.getElementById('online-ui');
   if (el) el.remove();
 }
-
 function startOffline() {
   hideOnlineUI();
+  lockLandscape();
   initGame();
   requestAnimationFrame(gameLoop);
+}
+
+// ── 로비 진입 ──
+async function enterLobby() {
+  const input = document.getElementById('nick-input');
+  myNick = input ? input.value.trim() : '';
+  if (!myNick) { setOlStatus('닉네임을 입력하세요!'); return; }
+  if (myNick.length > 10) { setOlStatus('닉네임은 10자 이하!'); return; }
+
+  // 온라인 상태 등록
+  const userRef = db.ref(`lobby/users/${myUid}`);
+  await userRef.set({ nick: myNick, at: Date.now() });
+  userRef.onDisconnect().remove();
+
+  showLobbyUI();
+}
+
+// ── 로비 화면 ──
+function showLobbyUI() {
+  const el = document.getElementById('online-ui');
+  if (!el) return;
+  el.innerHTML = `
+    <div style="width:100%;max-width:480px;height:100vh;display:flex;flex-direction:column;padding:16px;box-sizing:border-box;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <h2 style="color:#ffdd00;font-size:20px;margin:0;">🎮 로비</h2>
+        <span style="color:#4af;font-size:14px;">👤 ${myNick}</span>
+      </div>
+
+      <!-- 방 만들기 -->
+      <button onclick="createRoom()" style="
+        width:100%;padding:14px;margin-bottom:12px;
+        background:#4af;color:#000;border:none;border-radius:8px;
+        font-size:16px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">
+        🏠 방 만들기</button>
+
+      <!-- 방 목록 -->
+      <div style="color:#aaa;font-size:12px;margin-bottom:6px;">📋 방 목록</div>
+      <div id="room-list" style="
+        flex:1;overflow-y:auto;border:1px solid #333;border-radius:8px;
+        background:#111;min-height:200px;max-height:340px;">
+        <div style="padding:20px;text-align:center;color:#444;">방을 불러오는 중...</div>
+      </div>
+
+      <button onclick="startOffline()" style="
+        margin-top:12px;width:100%;padding:10px;background:#222;color:#888;
+        border:1px solid #444;border-radius:8px;font-size:13px;
+        cursor:pointer;font-family:'Courier New',monospace;">🤖 봇과 플레이</button>
+    </div>`;
+
+  // 방 목록 실시간 감지
+  db.ref('rooms').on('value', snap => {
+    const rooms = snap.val() || {};
+    const listEl = document.getElementById('room-list');
+    if (!listEl) return;
+
+    const waiting = Object.entries(rooms).filter(([k,v]) => v.status === 'waiting');
+    if (waiting.length === 0) {
+      listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#444;">열린 방이 없어요</div>';
+      return;
+    }
+    listEl.innerHTML = waiting.map(([code, room]) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;
+        padding:12px 14px;border-bottom:1px solid #222;">
+        <div>
+          <div style="color:#fff;font-size:14px;font-weight:bold;">${room.hostNick||'???'}의 방</div>
+          <div style="color:#666;font-size:11px;">코드: ${code}</div>
+        </div>
+        <button onclick="joinRoom('${code}')" style="
+          padding:8px 14px;background:#f84;color:#000;border:none;
+          border-radius:6px;font-size:13px;font-weight:bold;
+          cursor:pointer;font-family:'Courier New',monospace;">입장</button>
+      </div>`).join('');
+  });
 }
 
 // ── 방 만들기 ──
@@ -1493,141 +1641,694 @@ async function createRoom() {
   roomCode = genCode();
   myRole = 'host';
   const roomRef = db.ref(`rooms/${roomCode}`);
+  const seed = Math.floor(Math.random()*1000000);
+  const initWind = (Math.random()-0.5)*10;
+
+  buildSkyMapWithSeed(seed);
+  const px = findSafeX(60, GAME_W/2-60);
+  const bx = findSafeX(GAME_W/2+60, GAME_W-60);
 
   await roomRef.set({
-    status: 'waiting',
-    host: { ready: true },
-    guest: null,
-    wind: 0,
-    action: null
+    status:'waiting', seed, wind:initWind,
+    hostX:px, guestX:bx,
+    hostNick:myNick,
+    host:{uid:myUid, nick:myNick, ready:true},
+    guest:null, events:null, lastMove:null,
+    chat:null
+  });
+  roomRef.onDisconnect().remove();
+
+  showRoomUI(roomRef, seed, initWind, px, bx);
+}
+
+// ── 방 입장 ──
+async function joinRoom(code) {
+  roomCode = code || genCode();
+  const roomRef = db.ref(`rooms/${roomCode}`);
+  const snap = await roomRef.once('value');
+  const data = snap.val();
+  if (!data) { alert('방을 찾을 수 없어요!'); return; }
+  if (data.status !== 'waiting') { alert('이미 시작된 방이에요!'); return; }
+  myRole = 'guest';
+  await roomRef.child('guest').set({uid:myUid, nick:myNick, ready:false});
+  showRoomUI(roomRef, data.seed, data.wind, data.hostX, data.guestX);
+}
+
+// ── 방 안 UI ──
+function showRoomUI(roomRef, seed, initWind, px, bx) {
+  const el = document.getElementById('online-ui');
+  if (!el) return;
+
+  el.innerHTML = `
+    <div style="width:100%;max-width:480px;height:100vh;display:flex;flex-direction:column;padding:16px;box-sizing:border-box;">
+      <!-- 헤더 -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h3 style="color:#ffdd00;margin:0;font-size:16px;">🚪 방 코드: <span style="letter-spacing:3px;">${roomCode}</span></h3>
+        <button onclick="leaveRoom()" style="
+          padding:6px 12px;background:#333;color:#aaa;border:1px solid #555;
+          border-radius:6px;font-size:12px;cursor:pointer;font-family:'Courier New',monospace;">나가기</button>
+      </div>
+
+      <!-- 참가자 -->
+      <div style="background:#111;border:1px solid #333;border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="color:#aaa;font-size:11px;margin-bottom:8px;">👥 참가자</div>
+        <div id="room-members" style="display:flex;gap:12px;"></div>
+      </div>
+
+      <!-- 채팅 -->
+      <div style="color:#aaa;font-size:11px;margin-bottom:6px;">💬 채팅</div>
+      <div id="chat-box" style="
+        flex:1;overflow-y:auto;background:#111;border:1px solid #333;
+        border-radius:8px;padding:10px;min-height:150px;max-height:260px;
+        font-size:13px;line-height:1.6;"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <input id="chat-input" placeholder="메시지 입력..." style="
+          flex:1;padding:10px;background:#222;color:#fff;
+          border:1px solid #444;border-radius:8px;font-size:14px;
+          font-family:'Courier New',monospace;"/>
+        <button onclick="sendChat()" style="
+          padding:10px 14px;background:#333;color:#fff;border:1px solid #555;
+          border-radius:8px;font-size:14px;cursor:pointer;">전송</button>
+      </div>
+
+      <!-- 준비/시작 버튼 -->
+      <div id="room-btn-area" style="margin-top:12px;"></div>
+    </div>`;
+
+  // 엔터로 채팅
+  document.getElementById('chat-input').addEventListener('keydown', e => {
+    if (e.key==='Enter') sendChat();
   });
 
-  setOlStatus(`<b style="color:#ffdd00;font-size:18px;letter-spacing:3px;">${roomCode}</b><br>이 코드를 상대방에게 알려주세요!<br><span style="color:#666;">상대방 입장 대기 중...</span>`);
+  // 채팅 리스닝
+  roomRef.child('chat').limitToLast(50).on('child_added', snap => {
+    const d = snap.val();
+    if (!d) return;
+    const chatBox = document.getElementById('chat-box');
+    if (!chatBox) return;
+    const div = document.createElement('div');
+    div.style.marginBottom = '4px';
+    const nick = d.nick || '???';
+    const msg = d.msg || '';
+    div.innerHTML = `<span style="color:${d.uid===myUid?'#4af':'#f84'};font-weight:bold;">${escHtml(nick)}</span>: <span style="color:#ddd">${escHtml(msg)}</span>`;
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  });
 
-  // 상대방 입장 감지
-  roomRef.child('guest').on('value', snap => {
-    if (snap.val()?.ready) {
-      roomRef.child('guest').off();
-      setOlStatus('상대방 입장! 게임 시작! 🎮');
-      setTimeout(() => startOnlineGame(roomRef), 800);
+  // 방 상태 실시간 감지
+  roomRef.on('value', snap => {
+    const data = snap.val();
+    if (!data) return;
+
+    // 참가자 표시
+    const membersEl = document.getElementById('room-members');
+    if (membersEl) {
+      let html = '';
+      if (data.host) html += `<div style="background:#1a2a3a;border-radius:6px;padding:8px 12px;">
+        <div style="color:#4af;font-size:13px;font-weight:bold;">👑 ${data.host.nick}</div>
+        <div style="color:#666;font-size:11px;">방장</div></div>`;
+      if (data.guest) html += `<div style="background:#2a1a1a;border-radius:6px;padding:8px 12px;">
+        <div style="color:#f84;font-size:13px;font-weight:bold;">🔴 ${data.guest.nick}</div>
+        <div style="color:${data.guest.ready?'#4c4':'#666'};font-size:11px;">${data.guest.ready?'✅ 준비완료':'⏳ 대기중'}</div></div>`;
+      else html += `<div style="background:#1a1a1a;border-radius:6px;padding:8px 12px;border:1px dashed #333;">
+        <div style="color:#444;font-size:13px;">대기중...</div></div>`;
+      membersEl.innerHTML = html;
+    }
+
+    // 버튼 영역
+    const btnArea = document.getElementById('room-btn-area');
+    if (btnArea) {
+      if (myRole === 'host') {
+        const guestReady = data.guest?.ready === true;
+        const hasGuest = !!data.guest;
+        btnArea.innerHTML = `<button onclick="startOnlineGameFromRoom()" ${(!hasGuest||!guestReady)?'disabled':''} style="
+          width:100%;padding:14px;
+          background:${hasGuest&&guestReady?'#4c4':'#333'};
+          color:${hasGuest&&guestReady?'#000':'#666'};
+          border:none;border-radius:8px;font-size:16px;font-weight:bold;
+          cursor:${hasGuest&&guestReady?'pointer':'not-allowed'};
+          font-family:'Courier New',monospace;">
+          ${!hasGuest?'상대방 대기 중...':!guestReady?'상대방 준비 대기 중...':'🚀 게임 시작!'}</button>`;
+      } else {
+        const isReady = data.guest?.ready === true;
+        btnArea.innerHTML = `<button onclick="toggleReady()" style="
+          width:100%;padding:14px;
+          background:${isReady?'#f84':'#4af'};color:#000;
+          border:none;border-radius:8px;font-size:16px;font-weight:bold;
+          cursor:pointer;font-family:'Courier New',monospace;">
+          ${isReady?'⏳ 대기중으로 변경':'✅ 준비 완료!'}</button>`;
+      }
+    }
+
+    // 방장이 시작 누르면 게임 시작
+    if (data.status === 'playing' && myRole === 'guest') {
+      roomRef.off();
+      hideOnlineUI();
+      lockLandscape();
+      db.ref('lobby/users/'+myUid).remove();
+      startOnlineGame(roomRef, data.seed, data.wind, data.hostX, data.guestX);
     }
   });
 }
 
-// ── 방 입장 ──
-async function joinRoom() {
-  const input = document.getElementById('room-input');
-  roomCode = input.value.trim().toUpperCase();
-  if (roomCode.length < 4) { setOlStatus('방 코드를 입력하세요!'); return; }
-
+// 준비 토글
+async function toggleReady() {
   const roomRef = db.ref(`rooms/${roomCode}`);
-  const snap = await roomRef.once('value');
-  if (!snap.val()) { setOlStatus('❌ 방을 찾을 수 없어요!'); return; }
-  if (snap.val().status !== 'waiting') { setOlStatus('❌ 이미 시작된 방이에요!'); return; }
-
-  myRole = 'guest';
-  await roomRef.child('guest').set({ ready: true });
-  await roomRef.update({ status: 'playing' });
-
-  setOlStatus('입장 완료! 게임 시작! 🎮');
-  setTimeout(() => startOnlineGame(roomRef), 800);
+  const snap = await roomRef.child('guest').once('value');
+  const cur = snap.val()?.ready || false;
+  await roomRef.child('guest/ready').set(!cur);
 }
 
-// ── 온라인 게임 시작 ──
-function startOnlineGame(roomRef) {
+// 방장 시작
+async function startOnlineGameFromRoom() {
+  const roomRef = db.ref(`rooms/${roomCode}`);
+  const snap = await roomRef.once('value');
+  const data = snap.val();
+  if (!data?.guest?.ready) return;
+  await roomRef.update({ status: 'playing' });
   hideOnlineUI();
-  G.isOnline = true;
-  G.myRole = myRole;
-  G.roomRef = roomRef;
+  lockLandscape();
+  db.ref('lobby/users/'+myUid).remove();
+  startOnlineGame(roomRef, data.seed, data.wind, data.hostX, data.guestX);
+}
 
-  initGame();
+// 채팅 전송
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  if (!input || !input.value.trim()) return;
+  const msg = input.value.trim().substring(0, 100);
+  input.value = '';
+  if (!roomCode || !myNick) return;
+  db.ref(`rooms/${roomCode}/chat`).push({
+    uid: myUid, nick: String(myNick), msg: String(msg), at: Date.now()
+  });
+}
 
-  // host=P1(왼쪽), guest=P2(오른쪽)
-  // guest는 봇 위치에 상대방이 있음
-  if (myRole === 'guest') {
-    // 내가 guest면 오른쪽 탱크가 내 탱크
-    const tmp = {...G.player};
-    G.player = {...G.bot, facing: -1};
-    G.bot = {...tmp, facing: 1};
-    G.player.isBot = false;
-    G.bot.isBot = true;
+// 방 나가기
+async function leaveRoom() {
+  await db.ref(`rooms/${roomCode}`).remove();
+  location.reload();
+}
+
+// HTML 이스케이프
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function buildSkyMapWithSeed(seed) {
+  function seededRand(s) {
+    return function() {
+      s |= 0; s = s + 0x6D2B79F5 | 0;
+      let t = Math.imul(s ^ s >>> 15, 1 | s);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
   }
-
-  // 바람 동기화 (host가 설정)
-  if (myRole === 'host') {
-    roomRef.update({ wind: G.wind });
-  } else {
-    roomRef.child('wind').on('value', snap => {
-      if (snap.val() !== null) G.wind = snap.val();
-    });
+  const rand = seededRand(seed);
+  initTerrainArray();
+  const baseY = [360,328,278,338,382,318,258,288,268,312,372,302,252,318,352,365];
+  const baseX = [0,80,150,220,290,360,420,480,540,600,650,710,770,830,890,960];
+  const skyCP = baseX.map((x,i) => ({
+    x, y: Math.max(180, Math.min(430, baseY[i] + (rand()-0.5)*100))
+  }));
+  const THICK = 90;
+  for (let x = 0; x < GAME_W; x++) {
+    let surfaceY = 400;
+    for (let i = 0; i < skyCP.length-1; i++) {
+      if (x >= skyCP[i].x && x <= skyCP[i+1].x) {
+        const t = (x-skyCP[i].x)/(skyCP[i+1].x-skyCP[i].x);
+        const tc = (1-Math.cos(t*Math.PI))/2;
+        surfaceY = skyCP[i].y*(1-tc)+skyCP[i+1].y*tc;
+        break;
+      }
+    }
+    const top = Math.round(surfaceY);
+    const bot2 = Math.min(GAME_H-1, top+THICK);
+    for (let y = top; y <= bot2; y++) terrain[x][y] = 1;
   }
+  terrainDirty = true;
+}
 
-  // 상대방 액션 리스닝
-  roomRef.child('action').on('value', snap => {
-    const action = snap.val();
-    if (!action || action.from === myRole) return;
-    handleRemoteAction(action);
+// ── 방 만들기 ──
+// ── 시드 기반 동일 지형 ──
+function startOnlineGame(roomRef, seed, initWind, hostX, guestX) {
+  hideOnlineUI();
+  gameStartTime = Date.now();
+
+  // 동일 시드로 동일 지형
+  buildSkyMapWithSeed(seed);
+
+  // host가 확정한 좌표를 그대로 사용 (양쪽 동일)
+  const px = hostX;
+  const bx = guestX;
+
+  // host=왼쪽(파란), guest=오른쪽(빨간)
+  // 내 탱크 = player, 상대 = bot
+  const myX  = myRole==='host' ? px : bx;
+  const oppX = myRole==='host' ? bx : px;
+
+  G = {
+    wind: initWind,
+    turn: 'player',   // 항상 '내 턴'/'상대 턴' 관점
+    phase: myRole==='host' ? 'move' : 'wait',
+    pwrCharging:false, pwrVal:0,
+    projectiles:[], explosions:[],
+    gameOver:false, lastPower:0, pwrReady:false,
+    botMoving:false, botTargetX:oppX,
+    isOnline:true, myRole, roomRef,
+    player:{
+      x:myX, y:100, vy:0, onGround:true,
+      hp:200, maxHp:200, angle:30,
+      facing: myRole==='host'?1:-1,
+      moveUsed:0, color: myRole==='host'?'#4af':'#f84', isBot:false
+    },
+    bot:{
+      x:oppX, y:100, vy:0, onGround:true,
+      hp:200, maxHp:200, angle:30,
+      facing: myRole==='host'?-1:1,
+      moveUsed:0, color: myRole==='host'?'#f84':'#4af', isBot:true
+    }
+  };
+
+  // y 보정
+  const psy=getSurfaceY(G.player.x); if(psy>=0) G.player.y=psy-TANK_H;
+  const bsy=getSurfaceY(G.bot.x);    if(bsy>=0) G.bot.y=bsy-TANK_H;
+
+  document.getElementById('overlay').style.display='none';
+  updateUI();
+
+  // 상대방 이동 실시간 동기화
+  const otherRole = myRole==='host'?'guest':'host';
+  roomRef.child('lastMove').child(otherRole).on('value', snap => {
+    const d = snap.val();
+    if (!d || G.gameOver) return;
+    G.bot.targetX=d.x; G.bot.targetY=d.y;
+    G.bot.facing=d.facing; G.bot.angle=d.angle;
   });
 
-  // 연결 끊김 시 방 정리
-  roomRef.child(`${myRole}`).onDisconnect().update({ disconnected: true });
-  roomRef.child(`${myRole === 'host' ? 'guest' : 'host'}`).on('value', snap => {
+  // 상대방 이벤트(fire/pass) 리스닝
+  // child_added는 현재 이후 추가된 것만 받기 위해 limitToLast(1) 후 on
+  // 게임 시작 후 추가된 것만 처리하도록 ts 필터 사용
+  roomRef.child('events').on('child_added', snap => {
+    const ev = snap.val();
+    if (!ev || ev.from===myRole) return;
+    if (ev.ts < gameStartTime) return; // 이전 게임 이벤트 무시
+    handleRemoteEvent(ev);
+  });
+
+  // 연결 끊김
+  roomRef.child(myRole).onDisconnect().update({disconnected:true});
+
+  // 게임오버 동기화: 상대방이 먼저 감지했을 때 내 화면에도 표시
+  roomRef.child('gameOver').on('value', snap => {
+    const d = snap.val();
+    if (!d || d.from === myRole || G.gameOver) return;
+    G.gameOver = true;
+    // 상대 관점에서 win → 내 관점은 lose, 반대도 마찬가지
+    const flipped = d.result === 'win' ? 'lose' : d.result === 'lose' ? 'win' : 'draw';
+    _applyGameOver(flipped);
+  });
+
+  // 재시작: 양쪽 다 누르면 같은 방에서 새 게임
+  roomRef.child('restart').on('value', snap => {
+    const d = snap.val();
+    if (!d) return;
+    // 상대가 눌렀고 나는 아직 안 눌렀으면 버튼에 표시
+    if (d[otherRole] === true && !d[myRole]) {
+      const btn = document.getElementById('restart-btn');
+      if (btn && btn.style.display !== 'none') {
+        btn.textContent = '✅ 상대 준비! 눌러서 시작';
+      }
+    }
+    // 양쪽 다 눌렀으면 새 게임
+    if (d.host === true && d.guest === true) {
+      roomRef.child('restart').off();
+      if (myRole === 'host') {
+        const newSeed = Math.floor(Math.random() * 1000000);
+        const newWind = (Math.random() - 0.5) * 10;
+        buildSkyMapWithSeed(newSeed);
+        const newPx = findSafeX(60, GAME_W / 2 - 60);
+        const newBx = findSafeX(GAME_W / 2 + 60, GAME_W - 60);
+        roomRef.update({
+          seed: newSeed, wind: newWind,
+          hostX: newPx, guestX: newBx,
+          events: null, lastMove: null,
+          gameOver: null, restart: null,
+          status: 'playing'
+        }).then(() => startOnlineGame(roomRef, newSeed, newWind, newPx, newBx));
+      } else {
+        setTimeout(() => {
+          roomRef.once('value').then(snap2 => {
+            const nd = snap2.val();
+            startOnlineGame(roomRef, nd.seed, nd.wind, nd.hostX, nd.guestX);
+          });
+        }, 400);
+      }
+    }
+  });
+
+  // HP바 레이블: 왼쪽=나, 오른쪽=상대
+  const lp = document.getElementById('label-p');
+  const lb = document.getElementById('label-b');
+  if (lp) lp.textContent = '🔵 나';
+  if (lb) lb.textContent = '🔴 상대';
+
+  showTurnNotice(myRole==='host'?'🔵 내 턴!':'⏳ 상대 턴...');
+
+  // 게임중 나가기 버튼 표시
+  const leaveBtn = document.getElementById('ingame-leave');
+  if (leaveBtn) leaveBtn.style.display = 'block';
+
+  // 게임오버시 채팅방 버튼 표시
+  const leaveBtnOv = document.getElementById('leave-btn');
+  if (leaveBtnOv) leaveBtnOv.style.display = 'block';
+
+  // 상대방 나갔을때 처리
+  roomRef.child(otherRole).on('value', snap => {
     if (snap.val()?.disconnected && !G.gameOver) {
-      showOverlay('🔌 상대방 연결 끊김', '상대방이 나갔어요.');
+      showOverlay('🔌 연결 끊김','상대방이 나갔어요.');
       G.gameOver = true;
+      const lb = document.getElementById('leave-btn');
+      if (lb) lb.style.display = 'block';
+      const rb = document.getElementById('restart-btn');
+      if (rb) rb.style.display = 'none';
     }
   });
 
   requestAnimationFrame(gameLoop);
 }
 
-// ── 상대방 액션 처리 ──
-function handleRemoteAction(action) {
-  const opponent = G.bot;
-  if (action.type === 'state') {
-    opponent.x = action.x;
-    opponent.y = action.y;
-    opponent.facing = action.facing;
-    opponent.angle = action.angle;
-    opponent.moveUsed = action.moveUsed;
-  } else if (action.type === 'fire') {
-    opponent.angle = action.angle;
-    opponent.facing = action.facing;
-    G.wind = action.wind;
-    fireShot(opponent, action.power);
-  } else if (action.type === 'hp') {
-    G.player.hp = action.hp;
-    updateUI();
-    checkGameOver();
-  } else if (action.type === 'pass') {
-    G.wind = action.wind;
-    onlineTurnEnd();
+// ── 이벤트 전송 ──
+function pushEvent(type, data) {
+  if (!G.isOnline || !G.roomRef) return;
+  G.roomRef.child('events').push({from:myRole, type, ...data, ts:Date.now()});
+}
+
+// ── 이동 전송 (100ms 주기) ──
+setInterval(()=>{
+  if (!G||!G.isOnline||!G.roomRef||G.gameOver) return;
+  if (G.phase!=='move'||G.turn!=='player'||G.firing) return;
+  G.roomRef.child('lastMove').child(myRole).set({
+    x:G.player.x, y:G.player.y,
+    facing:G.player.facing, angle:G.player.angle
+  });
+}, 80);
+
+// ── 상대방 이벤트 처리 ──
+function handleRemoteEvent(ev) {
+  if (G.gameOver) return;
+
+  if (ev.type==='fire') {
+    // 상대 탱크 상태 업데이트
+    G.bot.angle=ev.angle; G.bot.facing=ev.facing;
+    G.wind=ev.wind;
+    // 상대 포탄 발사 (owner='bot' → 내 탱크에 데미지)
+    fireShot(G.bot, ev.power);
+    // 포탄 끝나면 내 턴
+    waitProjectiles(()=>{
+      if (G.gameOver) return;
+      switchToMyTurn();
+    });
+
+  } else if (ev.type==='pass') {
+    G.wind=ev.wind;
+    switchToMyTurn();
   }
 }
 
-// ── 내 액션 전송 ──
-function sendAction(type, data) {
-  if (!G.isOnline || !G.roomRef) return;
-  G.roomRef.child('action').set({ from: myRole, type, ...data, ts: Date.now() });
+// 모든 포탄이 사라질 때까지 대기
+function waitProjectiles(cb) {
+  const check=()=>{
+    if (G.projectiles.length===0) { setTimeout(cb,500); }
+    else { setTimeout(check,100); }
+  };
+  setTimeout(check,200);
 }
 
-// ── 온라인 턴 종료 ──
-function onlineTurnEnd() {
-  G.turn = 'player';
-  G.phase = 'move';
-  G.pwrVal = 0;
-  G.pwrCharging = false;
-  G.firing = false;
-  G.player.moveUsed = 0;
+// 내 턴으로 전환
+function switchToMyTurn() {
+  G.turn='player'; G.phase='move';
+  G.pwrVal=0; G.pwrCharging=false; G.firing=false;
+  G.player.moveUsed=0; G.bot.moveUsed=0;
+  showTurnNotice('🔵 내 턴!');
   updateUI();
 }
 
-// 내 턴인지 확인
-function isMyOnlineTurn() {
-  if (!G.isOnline) return true;
-  if (myRole === 'host') return G.turn === 'player';
-  if (myRole === 'guest') return G.turn === 'player';
-  return true;
+// 상대 턴으로 전환
+function switchToOppTurn() {
+  G.turn='bot'; G.phase='wait';
+  G.pwrVal=0; G.pwrCharging=false;
+  G.bot.moveUsed=0;
+  showTurnNotice('⏳ 상대 턴...');
+  updateUI();
+}
+
+// ── 발사 (온라인) ──
+function onlineFire(power) {
+  // 내 화면에서 발사
+  fireShot(G.player, power);
+  // 상대에게 전송
+  pushEvent('fire',{
+    angle:G.player.angle, facing:G.player.facing,
+    power, wind:G.wind
+  });
+  // 턴 전환은 update() 오버라이드의 포탄 소멸 감지에서 처리
+}
+
+// ── 패스 (온라인) ──
+function onlinePass() {
+  G.wind=updateWind();
+  pushEvent('pass',{wind:G.wind});
+  switchToOppTurn();
+}
+
+// ── update() 오버라이드 - 온라인 턴 처리 ──
+const _origUpdate = update;
+window.update = function(dt) {
+  if (!G||!G.isOnline) { _origUpdate(dt); return; }
+  if (G.gameOver) { _origUpdate(dt); return; }
+
+  // 포탄/폭발 물리는 항상 실행
+  const {player, bot} = G;
+
+  // 파워 충전
+  if (G.pwrCharging && G.phase==='move' && G.turn==='player' && !G.firing)
+    G.pwrVal = Math.min(100, G.pwrVal + dt*70);
+
+  // 내 턴일 때만 이동 조작
+  if (G.turn==='player' && G.phase==='move') {
+    if (keys['ArrowLeft']) {
+      player.facing=-1;
+      if (player.moveUsed<MAX_MOVE && player.onGround) {
+        const nx=Math.max(10,player.x-MOVE_SPEED*dt);
+        const curSY=getSurfaceYNear(player.x,player.y);
+        const nextSY=getSurfaceYNear(nx,player.y);
+        const heightUp=(curSY>0&&nextSY>0)?curSY-nextSY:0;
+        if (heightUp<5) {
+          const sf=Math.max(0.3,1-Math.max(0,heightUp)*0.04);
+          const mv=MOVE_SPEED*sf*dt;
+          player.x=Math.max(10,player.x-mv);
+          player.moveUsed+=mv*(1+Math.max(0,heightUp)*0.06);
+        }
+      }
+    }
+    if (keys['ArrowRight']) {
+      player.facing=1;
+      if (player.moveUsed<MAX_MOVE && player.onGround) {
+        const nx=Math.min(GAME_W-10,player.x+MOVE_SPEED*dt);
+        const curSY=getSurfaceYNear(player.x,player.y);
+        const nextSY=getSurfaceYNear(nx,player.y);
+        const heightUp=(curSY>0&&nextSY>0)?curSY-nextSY:0;
+        if (heightUp<5) {
+          const sf=Math.max(0.3,1-Math.max(0,heightUp)*0.04);
+          const mv=MOVE_SPEED*sf*dt;
+          player.x=Math.min(GAME_W-10,player.x+mv);
+          player.moveUsed+=mv*(1+Math.max(0,heightUp)*0.06);
+        }
+      }
+    }
+    if (keys['ArrowUp'])   player.angle=Math.min(ANGLE_RANGE,player.angle+ANGLE_SPEED*dt);
+    if (keys['ArrowDown']) player.angle=Math.max(ANGLE_MIN,player.angle-ANGLE_SPEED*dt);
+  } else {
+    // 상대 턴(wait/flying)에도 각도 미리 조준 가능
+    if (keys['ArrowUp'])   player.angle=Math.min(ANGLE_RANGE,player.angle+ANGLE_SPEED*dt);
+    if (keys['ArrowDown']) player.angle=Math.max(ANGLE_MIN,player.angle-ANGLE_SPEED*dt);
+  }
+  // 온라인: 내 턴 아닐 때도 파워 충전 UI 허용 (발사는 fireBtnRelease에서 차단됨)
+  if (G.pwrCharging && G.phase!=='move' && !G.firing)
+    G.pwrVal = Math.min(100, G.pwrVal + dt*70);
+// 상대 탱크 보간
+if (G.bot.targetX !== undefined) {
+    G.bot.x += (G.bot.targetX - G.bot.x) * 0.2;
+    G.bot.y += (G.bot.targetY - G.bot.y) * 0.2;
+}
+  // 중력/착지 (내 탱크만 - 상대 탱크는 lastMove로 동기화)
+  [player].forEach(tank=>{
+    if (tank.hp<=0) return;
+    const sy=getSurfaceYNear(tank.x,tank.y);
+    if (sy<0) {
+      tank.vy+=GRAVITY*dt; tank.y+=tank.vy*dt; tank.onGround=false;
+      if (tank.y>GAME_H+40){tank.hp=0;playSound('fall');}
+    } else {
+      const gy=sy-TANK_H;
+      if (tank.y<gy-2){tank.vy+=GRAVITY*dt;tank.y+=tank.vy*dt;tank.onGround=false;
+        if(tank.y>=gy){tank.y=gy;tank.vy=0;tank.onGround=true;}
+      } else {tank.y=gy;tank.vy=0;tank.onGround=true;}
+    }
+  });
+
+  // 포탄 물리 (기존 로직 그대로)
+  for (let i=G.projectiles.length-1;i>=0;i--) {
+    const p=G.projectiles[i];
+    p.vx+=G.wind*20*dt; p.vy+=GRAVITY*dt;
+    p.trail.push({x:p.x,y:p.y});
+    if (p.trail.length>30) p.trail.shift();
+    const prevX=p.x,prevY=p.y;
+    p.x+=p.vx*dt; p.y+=p.vy*dt;
+    const stepDist=Math.sqrt((p.x-prevX)**2+(p.y-prevY)**2);
+    p.travelDist=(p.travelDist||0)+stepDist;
+
+    let hit=false;
+    if (isTerrain(p.x,p.y)){deformTerrain(p.x,p.y,p.vx,p.vy);hit=true;}
+    if (p.y>GAME_H+20) hit=true;
+
+    if (!hit) {
+      [player,bot].forEach(tank=>{
+        if (tank.hp<=0) return;
+        // 내 포탄은 상대(bot)에게만, 상대 포탄은 나(player)에게만
+        if (p.owner==='player' && tank===player) return;
+        if (p.owner==='bot'    && tank===bot)    return;
+        const terrAngle=getTerrainAngle(tank.x);
+        const dx=p.x-tank.x, dy=p.y-tank.y;
+        const cosT=Math.cos(-terrAngle),sinT=Math.sin(-terrAngle);
+        const lx=dx*cosT-dy*sinT, ly=dx*sinT+dy*cosT;
+        const bodyHit=(lx/22)**2+((ly+2)/8)**2<=1;
+        const turretDx=lx-2*tank.facing,turretDy=ly+8;
+        const turretHit=Math.sqrt(turretDx**2+turretDy**2)<=9;
+        if (bodyHit||turretHit) {
+          const centerDist=Math.sqrt(lx**2+(ly+2)**2);
+          const acc=bodyHit?Math.max(0.6,1-centerDist/55):0.8;
+          const tb=Math.floor(Math.min(20,Math.max(0,(p.travelDist-500)/1500*20)));
+          [{dmg:Math.round(20*acc),delay:0},{dmg:Math.round(10*acc),delay:130},{dmg:Math.round(5*acc)+tb,delay:260}]
+          .forEach(ds=>setTimeout(()=>{
+            if (!G.gameOver&&tank.hp>0){tank.hp=Math.max(0,tank.hp-ds.dmg);checkGameOver();}
+          },ds.delay));
+          deformTerrain(p.x,p.y,p.vx,p.vy);
+          hit=true;
+        }
+      });
+    }
+    if (p.x<-60||p.x>GAME_W+60) hit=true;
+    if (hit) {
+      G.projectiles.splice(i,1);
+      // 포탄이 다 사라지고 G.firing 중이면 턴 전환 처리
+      if (G.projectiles.length===0 && G.firing) {
+        G.firing = false;
+        // 내가 발사한 경우(phase=flying) → 상대턴으로
+        if (G.phase==='flying') {
+          setTimeout(()=>{ if(!G.gameOver) switchToOppTurn(); }, 400);
+        }
+        // 상대가 발사한 경우 → handleRemoteEvent의 waitProjectiles가 처리
+      }
+    }
+  }
+
+  for (let i=G.explosions.length-1;i>=0;i--) {
+    G.explosions[i].life-=dt*50;
+    if (G.explosions[i].life<=0) G.explosions.splice(i,1);
+  }
+  checkGameOver();
+  updateUI();
+};
+
+// (위 코드로 통합됨)
+
+// (위 코드로 통합됨)
+
+// checkGameOver: 원본에 통합됨
+
+
+// (위 코드로 통합됨)
+
+// ── 채팅방으로 돌아가기 ──
+async function leaveToRoom() {
+  if (!roomCode) { location.reload(); return; }
+  const roomRef = db.ref(`rooms/${roomCode}`);
+
+  // 상대방에게 나갔다고 알림
+  if (G && G.isOnline) {
+    await roomRef.child('chat').push({
+      uid: 'system', nick: '시스템',
+      msg: `${myNick}님이 나갔어요.`, at: Date.now()
+    });
+    // 방 상태 다시 waiting으로 (상대방도 채팅방으로)
+    await roomRef.update({
+      status: 'waiting',
+      guest: null,
+      events: null,
+      lastMove: null,
+      gameOver: null,
+      restart: null
+    });
+  }
+
+  // 화면 정리
+  unlockOrientation();
+  G = {};
+  G.isOnline = false;
+
+  // 캔버스 클리어
+  const canvas = document.getElementById('gameCanvas');
+  const tCanvas = document.getElementById('terrainCanvas');
+  if (canvas) canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+  if (tCanvas) tCanvas.getContext('2d').clearRect(0,0,tCanvas.width,tCanvas.height);
+
+  // 게임중 나가기 버튼 숨기기
+  const leaveBtn = document.getElementById('ingame-leave');
+  if (leaveBtn) leaveBtn.style.display = 'none';
+
+  // 오버레이 숨기기
+  document.getElementById('overlay').style.display = 'none';
+
+  // 채팅방 다시 표시
+  const roomRef2 = db.ref(`rooms/${roomCode}`);
+  const snap = await roomRef2.once('value');
+  const data = snap.val();
+  if (data) {
+    // 방이 아직 있으면 채팅방으로
+    showOnlineUIDiv();
+    showRoomUI(roomRef2, data.seed, data.wind, data.hostX, data.guestX);
+  } else {
+    // 방이 없으면 로비로
+    showOnlineUIDiv();
+    showLobbyUI();
+  }
+}
+
+function showOnlineUIDiv() {
+  let el = document.getElementById('online-ui');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'online-ui';
+    el.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+      background:rgba(0,0,0,0.97);display:flex;flex-direction:column;
+      align-items:center;justify-content:center;z-index:999;
+      font-family:'Courier New',monospace;color:#fff;`;
+    document.body.appendChild(el);
+  }
+}
+function lockLandscape() {
+  try {
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('landscape').catch(()=>{});
+    }
+  } catch(e) {}
+}
+function unlockOrientation() {
+  try {
+    if (screen.orientation && screen.orientation.unlock) {
+      screen.orientation.unlock();
+    }
+  } catch(e) {}
 }
 
 // 게임 시작
