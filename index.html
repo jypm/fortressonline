@@ -1231,6 +1231,7 @@ function drawExplosion(exp) {
 }
 
 function updateUI() {
+  if (!G || !G.player || !G.bot) return;
   const { player, bot, wind, turn, phase, pwrVal, gameOver } = G;
   document.getElementById('hp-p').style.width = Math.max(0, player.hp / player.maxHp * 100) + '%';
   document.getElementById('hptxt-p').textContent = 'HP ' + Math.max(0, player.hp);
@@ -1829,7 +1830,7 @@ function startOnlineGame(roomRef, seed, initWind, hostX, guestX) {
   const otherRole=myRole==='host'?'guest':'host';
 
   roomRef.child('lastMove').child(otherRole).on('value', snap=>{
-    const d=snap.val(); if(!d||G.gameOver) return;
+    const d=snap.val(); if(!d||!G||G.gameOver) return;
     G.bot.targetX=d.x; G.bot.targetY=d.y; G.bot.facing=d.facing; G.bot.angle=d.angle;
   });
   roomRef.child('events').on('child_added', snap=>{
