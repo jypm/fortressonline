@@ -1482,11 +1482,19 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// 뒤로가기 막기
-history.pushState(null, '', location.href);
-window.addEventListener('popstate', () => {
+// 뒤로가기 완전 차단
+(function() {
   history.pushState(null, '', location.href);
-});
+  window.addEventListener('popstate', function() {
+    history.pushState(null, '', location.href);
+  });
+  // 페이지 이탈 방지
+  window.addEventListener('beforeunload', function(e) {
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  });
+})();
 
 let myRole = null;
 let roomCode = null;
