@@ -1584,8 +1584,16 @@ async function enterLobby() {
 
 // ── 로비 화면 ──
 function showLobbyUI() {
-  const el = document.getElementById('online-ui');
-  if (!el) return;
+  let el = document.getElementById('online-ui');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'online-ui';
+    el.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+      background:rgba(0,0,0,0.97);display:flex;flex-direction:column;
+      align-items:center;justify-content:center;z-index:999;
+      font-family:'Courier New',monospace;color:#fff;`;
+    document.body.appendChild(el);
+  }
   el.innerHTML = `
     <div style="width:100%;max-width:480px;height:100vh;display:flex;flex-direction:column;padding:16px;box-sizing:border-box;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
