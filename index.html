@@ -153,8 +153,6 @@ body {
         🚪 채팅방으로</button>
     </div>
   </div>
-
-  <!-- 게임중 나가기 -->
   <div id="ingame-leave" style="position:absolute;top:8px;right:8px;display:none;pointer-events:all;z-index:50;">
     <button onclick="leaveToRoom()" style="
       padding:5px 10px;background:rgba(80,80,80,0.8);color:#ccc;
@@ -1400,7 +1398,6 @@ if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
   document.getElementById('touch-controls').style.display = 'flex';
   resizeWrapper();
 }
-document.getElementById('touch-controls').style.display = 'flex';
 
 const touchKeys = {};
 function setTouchKey(key, val) {
@@ -1467,7 +1464,6 @@ if (fireBtn) {
 <!-- Firebase CDN -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-
 <script>
 const firebaseConfig = {
   apiKey: "AIzaSyCmMfEMCcjIjyGl-sayexpJyQG0x0SPllLw",
@@ -1481,29 +1477,15 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-let myRole = null;
-let roomCode = null;
-let gameStartTime = 0;
-let myNick = '';
-let myUid = 'u' + Math.random().toString(36).substring(2,10);
+let myRole = null, roomCode = null, gameStartTime = 0;
+let myNick = '', myUid = 'u' + Math.random().toString(36).substring(2,10);
 window._selectedPlayers = 2;
 
-function genCode() {
-  return Math.random().toString(36).substring(2,8).toUpperCase();
-}
-function escHtml(str) {
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+function genCode() { return Math.random().toString(36).substring(2,8).toUpperCase(); }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function lockLandscape() { try { screen.orientation?.lock('landscape').catch(()=>{}); } catch(e) {} }
+function unlockOrientation() { try { screen.orientation?.unlock(); } catch(e) {} }
 
-// ── 화면 방향 제어 ──
-function lockLandscape() {
-  try { if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(()=>{}); } catch(e) {}
-}
-function unlockOrientation() {
-  try { if (screen.orientation?.unlock) screen.orientation.unlock(); } catch(e) {}
-}
-
-// ── online-ui div 생성/반환 ──
 function getOrCreateOnlineUI() {
   let el = document.getElementById('online-ui');
   if (!el) {
@@ -1514,12 +1496,9 @@ function getOrCreateOnlineUI() {
   }
   return el;
 }
-function hideOnlineUI() {
-  const el = document.getElementById('online-ui');
-  if (el) el.remove();
-}
+function hideOnlineUI() { document.getElementById('online-ui')?.remove(); }
 
-// ── 1. 닉네임 화면 ──
+// ── 닉네임 화면 ──
 function showOnlineUI() {
   const el = getOrCreateOnlineUI();
   el.innerHTML = `
@@ -1527,26 +1506,13 @@ function showOnlineUI() {
       <div style="font-size:40px;margin-bottom:8px;">🎮</div>
       <h2 style="color:#ffdd00;font-size:24px;margin-bottom:6px;">포트리스 온라인</h2>
       <p style="color:#666;font-size:12px;margin-bottom:24px;">아는 사람끼리 즐기는 포트리스</p>
-      <input id="nick-input" placeholder="닉네임 입력" maxlength="10" style="
-        width:100%;padding:14px;margin-bottom:12px;
-        background:#222;color:#fff;border:2px solid #4af;
-        border-radius:8px;font-size:18px;text-align:center;
-        font-family:'Courier New',monospace;box-sizing:border-box;"/>
-      <button onclick="enterLobby()" style="
-        width:100%;padding:14px;background:#4af;color:#000;
-        border:none;border-radius:8px;font-size:16px;
-        font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;margin-bottom:12px;">
-        입장하기 →</button>
-      <button onclick="startOffline()" style="
-        width:100%;padding:10px;background:#222;color:#888;
-        border:1px solid #444;border-radius:8px;font-size:13px;
-        cursor:pointer;font-family:'Courier New',monospace;">🤖 봇과 플레이</button>
+      <input id="nick-input" placeholder="닉네임 입력" maxlength="10" style="width:100%;padding:14px;margin-bottom:12px;background:#222;color:#fff;border:2px solid #4af;border-radius:8px;font-size:18px;text-align:center;font-family:'Courier New',monospace;box-sizing:border-box;"/>
+      <button onclick="enterLobby()" style="width:100%;padding:14px;background:#4af;color:#000;border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;margin-bottom:12px;">입장하기 →</button>
+      <button onclick="startOffline()" style="width:100%;padding:10px;background:#222;color:#888;border:1px solid #444;border-radius:8px;font-size:13px;cursor:pointer;font-family:'Courier New',monospace;">🤖 봇과 플레이</button>
       <div id="ol-status" style="margin-top:12px;color:#f84;font-size:13px;"></div>
     </div>`;
-  setTimeout(()=>{ document.getElementById('nick-input')?.focus(); }, 100);
-  document.getElementById('nick-input')?.addEventListener('keydown', e => {
-    if (e.key==='Enter') enterLobby();
-  });
+  setTimeout(() => document.getElementById('nick-input')?.focus(), 100);
+  document.getElementById('nick-input')?.addEventListener('keydown', e => { if(e.key==='Enter') enterLobby(); });
 }
 
 function startOffline() {
@@ -1557,18 +1523,20 @@ function startOffline() {
   requestAnimationFrame(gameLoop);
 }
 
-// ── 2. 로비 ──
+// ── 로비 ──
 async function enterLobby() {
   const input = document.getElementById('nick-input');
-  myNick = input ? input.value.trim() : '';
+  myNick = input?.value.trim() || '';
   if (!myNick) { document.getElementById('ol-status').textContent='닉네임을 입력하세요!'; return; }
-  const userRef = db.ref(`lobby/users/${myUid}`);
-  await userRef.set({ nick: myNick, at: Date.now() });
+  const userRef = db.ref('lobby/users/'+myUid);
+  await userRef.set({nick:myNick, at:Date.now()});
   userRef.onDisconnect().remove();
   showLobbyUI();
 }
 
 function showLobbyUI() {
+  db.ref('lobby/users').off();
+  db.ref('rooms').off();
   const el = getOrCreateOnlineUI();
   el.innerHTML = `
     <div style="width:100%;max-width:480px;height:100vh;display:flex;flex-direction:column;padding:16px;box-sizing:border-box;">
@@ -1577,63 +1545,40 @@ function showLobbyUI() {
         <span style="color:#4af;font-size:14px;">👤 ${escHtml(myNick)}</span>
       </div>
       <div style="color:#aaa;font-size:11px;margin-bottom:4px;">🟢 접속중</div>
-      <div id="user-list" style="background:#111;border:1px solid #333;border-radius:8px;
-        padding:8px;margin-bottom:12px;min-height:36px;display:flex;flex-wrap:wrap;gap:6px;"></div>
-      <button onclick="showCreateRoomModal()" style="
-        width:100%;padding:14px;margin-bottom:12px;
-        background:#4af;color:#000;border:none;border-radius:8px;
-        font-size:16px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">
-        🏠 방 만들기</button>
+      <div id="user-list" style="background:#111;border:1px solid #333;border-radius:8px;padding:8px;margin-bottom:12px;min-height:36px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+      <button onclick="showCreateRoomModal()" style="width:100%;padding:14px;margin-bottom:12px;background:#4af;color:#000;border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">🏠 방 만들기</button>
       <div style="color:#aaa;font-size:11px;margin-bottom:6px;">📋 방 목록</div>
-      <div id="room-list" style="flex:1;overflow-y:auto;border:1px solid #333;border-radius:8px;background:#111;min-height:150px;">
-        <div style="padding:20px;text-align:center;color:#444;">불러오는 중...</div>
-      </div>
-      <button onclick="startOffline()" style="
-        margin-top:12px;width:100%;padding:10px;background:#222;color:#888;
-        border:1px solid #444;border-radius:8px;font-size:13px;
-        cursor:pointer;font-family:'Courier New',monospace;">🤖 봇과 플레이</button>
+      <div id="room-list" style="flex:1;overflow-y:auto;border:1px solid #333;border-radius:8px;background:#111;min-height:150px;"><div style="padding:20px;text-align:center;color:#444;">불러오는 중...</div></div>
+      <button onclick="startOffline()" style="margin-top:12px;width:100%;padding:10px;background:#222;color:#888;border:1px solid #444;border-radius:8px;font-size:13px;cursor:pointer;font-family:'Courier New',monospace;">🤖 봇과 플레이</button>
     </div>`;
 
-  // 접속자 목록
   db.ref('lobby/users').on('value', snap => {
     const listEl = document.getElementById('user-list');
     if (!listEl) return;
-    const users = Object.values(snap.val() || {});
-    listEl.innerHTML = users.length === 0
-      ? '<span style="color:#444;font-size:12px;">없음</span>'
-      : users.map(u => `<span style="background:${u.nick===myNick?'#1a3a5a':'#1a1a2a'};color:${u.nick===myNick?'#4af':'#aaa'};padding:3px 8px;border-radius:10px;font-size:12px;">${u.nick===myNick?'👤':''}${escHtml(u.nick)}</span>`).join('');
+    const users = Object.values(snap.val()||{});
+    listEl.innerHTML = users.length===0 ? '<span style="color:#444;font-size:12px;">없음</span>'
+      : users.map(u=>`<span style="background:${u.nick===myNick?'#1a3a5a':'#1a1a2a'};color:${u.nick===myNick?'#4af':'#aaa'};padding:3px 8px;border-radius:10px;font-size:12px;">${u.nick===myNick?'👤':''}${escHtml(u.nick)}</span>`).join('');
   });
 
-  // 방 목록
   db.ref('rooms').on('value', snap => {
     const listEl = document.getElementById('room-list');
     if (!listEl) return;
-    const rooms = snap.val() || {};
-    const waiting = Object.entries(rooms).filter(([k,v]) => v.status === 'waiting');
-    if (waiting.length === 0) {
-      listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#444;">열린 방이 없어요</div>';
-      return;
-    }
-    listEl.innerHTML = waiting.map(([code, room]) => {
-      const maxP = room.maxPlayers || 2;
-      const curP = (room.host?1:0) + (room.guest?1:0);
-      const isFull = curP >= maxP;
+    const waiting = Object.entries(snap.val()||{}).filter(([k,v])=>v.status==='waiting');
+    if (!waiting.length) { listEl.innerHTML='<div style="padding:20px;text-align:center;color:#444;">열린 방이 없어요</div>'; return; }
+    listEl.innerHTML = waiting.map(([code,room]) => {
+      const maxP=room.maxPlayers||2, curP=(room.host?1:0)+(room.guest?1:0), isFull=curP>=maxP;
       return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #222;">
         <div>
           <div style="color:#fff;font-size:14px;font-weight:bold;">${escHtml(room.title||room.hostNick+'의 방')}</div>
           <div style="color:#666;font-size:11px;">${maxP===4?'👥4인':'👤2인'} · ${curP}/${maxP}명${maxP===4?' · <span style="color:#f84">채팅전용</span>':''}</div>
         </div>
-        <button onclick="joinRoom('${code}')" ${isFull?'disabled':''} style="
-          padding:8px 14px;background:${isFull?'#333':'#f84'};color:${isFull?'#666':'#000'};
-          border:none;border-radius:6px;font-size:13px;font-weight:bold;
-          cursor:${isFull?'not-allowed':'pointer'};font-family:'Courier New',monospace;">
-          ${isFull?'만원':'입장'}</button>
+        <button onclick="joinRoom('${code}')" ${isFull?'disabled':''} style="padding:8px 14px;background:${isFull?'#333':'#f84'};color:${isFull?'#666':'#000'};border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:${isFull?'not-allowed':'pointer'};font-family:'Courier New',monospace;">${isFull?'만원':'입장'}</button>
       </div>`;
     }).join('');
   });
 }
 
-// ── 3. 방 만들기 모달 ──
+// ── 방 만들기 모달 ──
 function showCreateRoomModal() {
   window._selectedPlayers = 2;
   const modal = document.createElement('div');
@@ -1644,34 +1589,18 @@ function showCreateRoomModal() {
       <h3 style="color:#ffdd00;margin:0 0 16px;font-size:18px;">🏠 방 만들기</h3>
       <div style="margin-bottom:12px;">
         <div style="color:#aaa;font-size:12px;margin-bottom:6px;">방 제목</div>
-        <input id="room-title" placeholder="${escHtml(myNick)}의 방" maxlength="20" style="
-          width:100%;padding:10px;background:#222;color:#fff;
-          border:1px solid #555;border-radius:6px;font-size:14px;
-          font-family:'Courier New',monospace;box-sizing:border-box;"/>
+        <input id="room-title" placeholder="${escHtml(myNick)}의 방" maxlength="20" style="width:100%;padding:10px;background:#222;color:#fff;border:1px solid #555;border-radius:6px;font-size:14px;font-family:'Courier New',monospace;box-sizing:border-box;"/>
       </div>
       <div style="margin-bottom:20px;">
         <div style="color:#aaa;font-size:12px;margin-bottom:8px;">인원</div>
         <div style="display:flex;gap:8px;">
-          <button id="btn-2p" onclick="selectPlayers(2)" style="
-            flex:1;padding:12px;background:#4af;color:#000;
-            border:2px solid #4af;border-radius:8px;font-size:14px;
-            font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">👤 2명</button>
-          <button id="btn-4p" onclick="selectPlayers(4)" style="
-            flex:1;padding:12px;background:#222;color:#aaa;
-            border:2px solid #444;border-radius:8px;font-size:13px;
-            font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">
-            👥 4명<br><span style="font-size:10px;color:#f84;">채팅전용</span></button>
+          <button id="btn-2p" onclick="selectPlayers(2)" style="flex:1;padding:12px;background:#4af;color:#000;border:2px solid #4af;border-radius:8px;font-size:14px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">👤 2명</button>
+          <button id="btn-4p" onclick="selectPlayers(4)" style="flex:1;padding:12px;background:#222;color:#aaa;border:2px solid #444;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">👥 4명<br><span style="font-size:10px;color:#f84;">채팅전용</span></button>
         </div>
       </div>
       <div style="display:flex;gap:8px;">
-        <button onclick="document.getElementById('create-modal').remove()" style="
-          flex:1;padding:12px;background:#333;color:#aaa;
-          border:1px solid #555;border-radius:8px;font-size:14px;
-          cursor:pointer;font-family:'Courier New',monospace;">취소</button>
-        <button onclick="createRoom()" style="
-          flex:1;padding:12px;background:#4af;color:#000;
-          border:none;border-radius:8px;font-size:14px;font-weight:bold;
-          cursor:pointer;font-family:'Courier New',monospace;">만들기</button>
+        <button onclick="document.getElementById('create-modal').remove()" style="flex:1;padding:12px;background:#333;color:#aaa;border:1px solid #555;border-radius:8px;font-size:14px;cursor:pointer;font-family:'Courier New',monospace;">취소</button>
+        <button onclick="createRoom()" style="flex:1;padding:12px;background:#4af;color:#000;border:none;border-radius:8px;font-size:14px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">만들기</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
@@ -1679,59 +1608,46 @@ function showCreateRoomModal() {
 
 function selectPlayers(n) {
   window._selectedPlayers = n;
-  document.getElementById('btn-2p').style.background = n===2?'#4af':'#222';
-  document.getElementById('btn-2p').style.color = n===2?'#000':'#aaa';
-  document.getElementById('btn-2p').style.borderColor = n===2?'#4af':'#444';
-  document.getElementById('btn-4p').style.background = n===4?'#f84':'#222';
-  document.getElementById('btn-4p').style.color = n===4?'#000':'#aaa';
-  document.getElementById('btn-4p').style.borderColor = n===4?'#f84':'#444';
+  document.getElementById('btn-2p').style.cssText = `flex:1;padding:12px;background:${n===2?'#4af':'#222'};color:${n===2?'#000':'#aaa'};border:2px solid ${n===2?'#4af':'#444'};border-radius:8px;font-size:14px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;`;
+  document.getElementById('btn-4p').style.cssText = `flex:1;padding:12px;background:${n===4?'#f84':'#222'};color:${n===4?'#000':'#aaa'};border:2px solid ${n===4?'#f84':'#444'};border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;`;
 }
 
-// ── 4. 방 만들기 ──
+// ── 방 만들기 ──
 async function createRoom() {
-  const titleInput = document.getElementById('room-title');
-  const title = titleInput?.value.trim() || `${myNick}의 방`;
+  const title = document.getElementById('room-title')?.value.trim() || myNick+'의 방';
   const maxPlayers = window._selectedPlayers || 2;
   document.getElementById('create-modal')?.remove();
-
-  roomCode = genCode();
-  myRole = 'host';
-  const roomRef = db.ref(`rooms/${roomCode}`);
+  roomCode = genCode(); myRole = 'host';
+  const roomRef = db.ref('rooms/'+roomCode);
   const seed = Math.floor(Math.random()*1000000);
   const initWind = (Math.random()-0.5)*10;
   buildSkyMapWithSeed(seed);
   const px = findSafeX(60, GAME_W/2-60);
   const bx = findSafeX(GAME_W/2+60, GAME_W-60);
-
-  await roomRef.set({
-    status:'waiting', seed, wind:initWind,
-    hostX:px, guestX:bx,
-    hostNick:myNick, title, maxPlayers,
-    host:{uid:myUid, nick:myNick, ready:true},
-    guest:null, events:null, lastMove:null, chat:null
-  });
+  await roomRef.set({status:'waiting',seed,wind:initWind,hostX:px,guestX:bx,hostNick:myNick,title,maxPlayers,host:{uid:myUid,nick:myNick,ready:true},guest:null,events:null,lastMove:null,chat:null});
   roomRef.onDisconnect().remove();
   showRoomUI(roomRef, seed, initWind, px, bx);
 }
 
-// ── 5. 방 입장 ──
+// ── 방 입장 ──
 async function joinRoom(code) {
   roomCode = code;
-  const roomRef = db.ref(`rooms/${roomCode}`);
+  const roomRef = db.ref('rooms/'+roomCode);
   const snap = await roomRef.once('value');
   const data = snap.val();
   if (!data) { alert('방을 찾을 수 없어요!'); return; }
   if (data.status !== 'waiting') { alert('이미 시작된 방이에요!'); return; }
-  const maxP = data.maxPlayers || 2;
-  const curP = (data.host?1:0) + (data.guest?1:0);
+  const maxP = data.maxPlayers||2, curP=(data.host?1:0)+(data.guest?1:0);
   if (curP >= maxP) { alert('방이 꽉 찼어요!'); return; }
   myRole = 'guest';
-  await roomRef.child('guest').set({uid:myUid, nick:myNick, ready:false});
+  await roomRef.child('guest').set({uid:myUid,nick:myNick,ready:false});
   showRoomUI(roomRef, data.seed, data.wind, data.hostX, data.guestX);
 }
 
-// ── 6. 방 안 UI ──
+// ── 방 안 UI ──
 function showRoomUI(roomRef, seed, initWind, px, bx) {
+  db.ref('lobby/users').off();
+  db.ref('rooms').off();
   const el = getOrCreateOnlineUI();
   el.innerHTML = `
     <div style="width:100%;max-width:480px;height:100vh;display:flex;flex-direction:column;padding:16px;box-sizing:border-box;">
@@ -1746,89 +1662,54 @@ function showRoomUI(roomRef, seed, initWind, px, bx) {
       <div style="color:#aaa;font-size:11px;margin-bottom:6px;">💬 채팅</div>
       <div id="chat-box" style="flex:1;overflow-y:auto;background:#111;border:1px solid #333;border-radius:8px;padding:10px;min-height:150px;max-height:260px;font-size:13px;line-height:1.6;"></div>
       <div style="display:flex;gap:8px;margin-top:8px;">
-        <input id="chat-input" placeholder="메시지 입력..." style="
-          flex:1;padding:10px;background:#222;color:#fff;
-          border:1px solid #444;border-radius:8px;font-size:14px;
-          font-family:'Courier New',monospace;"/>
+        <input id="chat-input" placeholder="메시지 입력..." style="flex:1;padding:10px;background:#222;color:#fff;border:1px solid #444;border-radius:8px;font-size:14px;font-family:'Courier New',monospace;"/>
         <button onclick="sendChat()" style="padding:10px 14px;background:#333;color:#fff;border:1px solid #555;border-radius:8px;font-size:14px;cursor:pointer;">전송</button>
       </div>
       <div id="room-btn-area" style="margin-top:12px;"></div>
     </div>`;
 
-  document.getElementById('chat-input').addEventListener('keydown', e => {
-    if (e.key==='Enter') sendChat();
-  });
+  document.getElementById('chat-input').addEventListener('keydown', e => { if(e.key==='Enter') sendChat(); });
 
-  // 채팅
   roomRef.child('chat').limitToLast(50).on('child_added', snap => {
-    const d = snap.val();
-    if (!d) return;
-    const chatBox = document.getElementById('chat-box');
-    if (!chatBox) return;
-    const div = document.createElement('div');
-    div.style.marginBottom = '4px';
-    const isSystem = d.uid === 'system';
-    div.innerHTML = isSystem
+    const d = snap.val(); if (!d) return;
+    const chatBox = document.getElementById('chat-box'); if (!chatBox) return;
+    const div = document.createElement('div'); div.style.marginBottom='4px';
+    div.innerHTML = d.uid==='system'
       ? `<span style="color:#666;font-style:italic;">${escHtml(d.msg)}</span>`
       : `<span style="color:${d.uid===myUid?'#4af':'#f84'};font-weight:bold;">${escHtml(d.nick)}</span>: <span style="color:#ddd">${escHtml(d.msg)}</span>`;
-    chatBox.appendChild(div);
-    chatBox.scrollTop = chatBox.scrollHeight;
+    chatBox.appendChild(div); chatBox.scrollTop=chatBox.scrollHeight;
   });
 
-  // 방 상태 감지
   roomRef.on('value', snap => {
-    const data = snap.val();
-    if (!data) return;
-    const maxP = data.maxPlayers || 2;
+    const data = snap.val(); if (!data) return;
+    const maxP = data.maxPlayers||2;
 
-    // 참가자
     const membersEl = document.getElementById('room-members');
     if (membersEl) {
-      let html = '';
-      if (data.host) html += `<div style="background:#1a2a3a;border-radius:6px;padding:8px 12px;">
-        <div style="color:#4af;font-size:13px;font-weight:bold;">👑 ${escHtml(data.host.nick)}</div>
-        <div style="color:#666;font-size:11px;">방장</div></div>`;
-      if (data.guest) html += `<div style="background:#2a1a1a;border-radius:6px;padding:8px 12px;">
-        <div style="color:#f84;font-size:13px;font-weight:bold;">🔴 ${escHtml(data.guest.nick)}</div>
-        <div style="color:${data.guest.ready?'#4c4':'#666'};font-size:11px;">${data.guest.ready?'✅ 준비완료':'⏳ 대기중'}</div></div>`;
-      else html += `<div style="background:#1a1a1a;border-radius:6px;padding:8px 12px;border:1px dashed #333;">
-        <div style="color:#444;font-size:13px;">대기중...</div></div>`;
+      let html = data.host ? `<div style="background:#1a2a3a;border-radius:6px;padding:8px 12px;"><div style="color:#4af;font-size:13px;font-weight:bold;">👑 ${escHtml(data.host.nick)}</div><div style="color:#666;font-size:11px;">방장</div></div>` : '';
+      html += data.guest ? `<div style="background:#2a1a1a;border-radius:6px;padding:8px 12px;"><div style="color:#f84;font-size:13px;font-weight:bold;">🔴 ${escHtml(data.guest.nick)}</div><div style="color:${data.guest.ready?'#4c4':'#666'};font-size:11px;">${data.guest.ready?'✅ 준비완료':'⏳ 대기중'}</div></div>`
+        : `<div style="background:#1a1a1a;border-radius:6px;padding:8px 12px;border:1px dashed #333;"><div style="color:#444;font-size:13px;">대기중...</div></div>`;
       membersEl.innerHTML = html;
     }
 
-    // 버튼
     const btnArea = document.getElementById('room-btn-area');
     if (btnArea) {
-      if (maxP === 4) {
+      if (maxP===4) {
         btnArea.innerHTML = `<div style="text-align:center;color:#f84;font-size:13px;padding:10px;">👥 4인 채팅방 · 게임 불가 (추후 2대2 지원 예정)</div>`;
-      } else if (myRole === 'host') {
-        const guestReady = data.guest?.ready === true;
-        const hasGuest = !!data.guest;
-        btnArea.innerHTML = `<button onclick="startOnlineGameFromRoom()" ${(!hasGuest||!guestReady)?'disabled':''} style="
-          width:100%;padding:14px;
-          background:${hasGuest&&guestReady?'#4c4':'#333'};
-          color:${hasGuest&&guestReady?'#000':'#666'};
-          border:none;border-radius:8px;font-size:16px;font-weight:bold;
-          cursor:${hasGuest&&guestReady?'pointer':'not-allowed'};
-          font-family:'Courier New',monospace;">
-          ${!hasGuest?'상대방 대기 중...':!guestReady?'상대방 준비 대기 중...':'🚀 게임 시작!'}</button>`;
+      } else if (myRole==='host') {
+        const guestReady = data.guest?.ready===true, hasGuest = !!data.guest;
+        btnArea.innerHTML = `<button onclick="startOnlineGameFromRoom()" ${(!hasGuest||!guestReady)?'disabled':''} style="width:100%;padding:14px;background:${hasGuest&&guestReady?'#4c4':'#333'};color:${hasGuest&&guestReady?'#000':'#666'};border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:${hasGuest&&guestReady?'pointer':'not-allowed'};font-family:'Courier New',monospace;">${!hasGuest?'상대방 대기 중...':!guestReady?'상대방 준비 대기 중...':'🚀 게임 시작!'}</button>`;
       } else {
-        const isReady = data.guest?.ready === true;
-        btnArea.innerHTML = `<button onclick="toggleReady()" style="
-          width:100%;padding:14px;
-          background:${isReady?'#f84':'#4af'};color:#000;
-          border:none;border-radius:8px;font-size:16px;font-weight:bold;
-          cursor:pointer;font-family:'Courier New',monospace;">
-          ${isReady?'⏳ 대기중으로 변경':'✅ 준비 완료!'}</button>`;
+        const isReady = data.guest?.ready===true;
+        btnArea.innerHTML = `<button onclick="toggleReady()" style="width:100%;padding:14px;background:${isReady?'#f84':'#4af'};color:#000;border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">${isReady?'⏳ 대기중으로 변경':'✅ 준비 완료!'}</button>`;
       }
     }
 
-    // guest: 방장이 시작 누르면 게임 시작
-    if (data.status === 'playing' && myRole === 'guest') {
+    if (data.status==='playing' && myRole==='guest') {
       roomRef.off();
       hideOnlineUI();
       db.ref('lobby/users/'+myUid).remove();
-      document.getElementById('touch-controls').style.display = 'flex';
+      document.getElementById('touch-controls').style.display='flex';
       lockLandscape();
       startOnlineGame(roomRef, data.seed, data.wind, data.hostX, data.guestX);
     }
@@ -1836,63 +1717,59 @@ function showRoomUI(roomRef, seed, initWind, px, bx) {
 }
 
 async function toggleReady() {
-  const snap = await db.ref(`rooms/${roomCode}/guest`).once('value');
-  await db.ref(`rooms/${roomCode}/guest/ready`).set(!snap.val()?.ready);
+  const snap = await db.ref('rooms/'+roomCode+'/guest').once('value');
+  await db.ref('rooms/'+roomCode+'/guest/ready').set(!snap.val()?.ready);
 }
 
 async function startOnlineGameFromRoom() {
-  const snap = await db.ref(`rooms/${roomCode}`).once('value');
+  const snap = await db.ref('rooms/'+roomCode).once('value');
   const data = snap.val();
   if (!data?.guest?.ready) return;
-  await db.ref(`rooms/${roomCode}`).update({ status: 'playing' });
+  await db.ref('rooms/'+roomCode).update({status:'playing'});
   hideOnlineUI();
   db.ref('lobby/users/'+myUid).remove();
-  document.getElementById('touch-controls').style.display = 'flex';
+  document.getElementById('touch-controls').style.display='flex';
   lockLandscape();
-  startOnlineGame(db.ref(`rooms/${roomCode}`), data.seed, data.wind, data.hostX, data.guestX);
+  startOnlineGame(db.ref('rooms/'+roomCode), data.seed, data.wind, data.hostX, data.guestX);
 }
 
 function sendChat() {
   const input = document.getElementById('chat-input');
-  if (!input?.value.trim() || !roomCode) return;
-  const msg = input.value.trim().substring(0,100);
-  input.value = '';
-  db.ref(`rooms/${roomCode}/chat`).push({uid:myUid, nick:myNick, msg, at:Date.now()});
+  if (!input?.value.trim()||!roomCode) return;
+  const msg = input.value.trim().substring(0,100); input.value='';
+  db.ref('rooms/'+roomCode+'/chat').push({uid:myUid,nick:myNick,msg,at:Date.now()});
 }
 
 async function leaveRoom() {
   if (!confirm('방에서 나가시겠어요?')) return;
-  db.ref('rooms').off();
-  db.ref('lobby/users').off();
-  const roomRef = db.ref(`rooms/${roomCode}`);
-  if (myRole === 'host') await roomRef.remove();
+  db.ref('rooms').off(); db.ref('lobby/users').off();
+  const roomRef = db.ref('rooms/'+roomCode);
+  if (myRole==='host') await roomRef.remove();
   else await roomRef.child('guest').remove();
-  roomCode = null; myRole = null;
+  roomCode=null; myRole=null;
   showLobbyUI();
 }
 
-// ── 7. 게임중 나가기 ──
 async function leaveToRoom() {
-  if (!confirm('정말 나가시겠어요?\n상대방도 채팅방으로 이동됩니다.')) return;
-  const roomRef = db.ref(`rooms/${roomCode}`);
-  await roomRef.child('chat').push({uid:'system', nick:'시스템', msg:`${myNick}님이 나갔어요.`, at:Date.now()});
-  await roomRef.update({status:'waiting', guest:null, events:null, lastMove:null, gameOver:null, restart:null, returnToRoom:{by:myNick,at:Date.now()}});
+  if (!confirm('정말 나가시겠어요? 상대방도 채팅방으로 이동됩니다.')) return;
+  const roomRef = db.ref('rooms/'+roomCode);
+  await roomRef.child('chat').push({uid:'system',nick:'시스템',msg:myNick+'님이 나갔어요.',at:Date.now()});
+  await roomRef.update({status:'waiting',guest:null,events:null,lastMove:null,gameOver:null,restart:null,returnToRoom:{by:myNick,at:Date.now()}});
   _returnToRoom();
 }
 
 function _returnToRoom() {
   unlockOrientation();
   if (G) { G.gameOver=true; G.isOnline=false; }
-  document.getElementById('touch-controls').style.display = 'none';
-  document.getElementById('overlay').style.display = 'none';
-  document.getElementById('ingame-leave').style.display = 'none';
-  const canvas = document.getElementById('gameCanvas');
-  const tCanvas = document.getElementById('terrainCanvas');
+  document.getElementById('touch-controls').style.display='none';
+  document.getElementById('overlay').style.display='none';
+  const il = document.getElementById('ingame-leave'); if(il) il.style.display='none';
+  const canvas=document.getElementById('gameCanvas'), tCanvas=document.getElementById('terrainCanvas');
   canvas?.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
   tCanvas?.getContext('2d').clearRect(0,0,tCanvas.width,tCanvas.height);
-  db.ref(`rooms/${roomCode}`).once('value').then(snap => {
-    const data = snap.val();
-    if (data) showRoomUI(db.ref(`rooms/${roomCode}`), data.seed, data.wind, data.hostX, data.guestX);
+  db.ref('rooms/'+roomCode).once('value').then(snap => {
+    const data=snap.val();
+    if(data) showRoomUI(db.ref('rooms/'+roomCode),data.seed,data.wind,data.hostX,data.guestX);
     else showLobbyUI();
   });
 }
@@ -1901,204 +1778,132 @@ function _returnToRoom() {
 function buildSkyMapWithSeed(seed) {
   function seededRand(s) {
     return function() {
-      s |= 0; s = s + 0x6D2B79F5 | 0;
-      let t = Math.imul(s ^ s >>> 15, 1 | s);
-      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      s|=0; s=s+0x6D2B79F5|0;
+      let t=Math.imul(s^s>>>15,1|s);
+      t=t+Math.imul(t^t>>>7,61|t)^t;
+      return((t^t>>>14)>>>0)/4294967296;
     };
   }
-  const rand = seededRand(seed);
+  const rand=seededRand(seed);
   initTerrainArray();
-  const baseY = [360,328,278,338,382,318,258,288,268,312,372,302,252,318,352,365];
-  const baseX = [0,80,150,220,290,360,420,480,540,600,650,710,770,830,890,960];
-  const skyCP = baseX.map((x,i) => ({x, y:Math.max(180,Math.min(430,baseY[i]+(rand()-0.5)*100))}));
-  const THICK = 90;
-  for (let x=0;x<GAME_W;x++) {
+  const baseY=[360,328,278,338,382,318,258,288,268,312,372,302,252,318,352,365];
+  const baseX=[0,80,150,220,290,360,420,480,540,600,650,710,770,830,890,960];
+  const skyCP=baseX.map((x,i)=>({x,y:Math.max(180,Math.min(430,baseY[i]+(rand()-0.5)*100))}));
+  const THICK=90;
+  for(let x=0;x<GAME_W;x++){
     let surfaceY=400;
-    for (let i=0;i<skyCP.length-1;i++) {
-      if (x>=skyCP[i].x && x<=skyCP[i+1].x) {
+    for(let i=0;i<skyCP.length-1;i++){
+      if(x>=skyCP[i].x&&x<=skyCP[i+1].x){
         const t=(x-skyCP[i].x)/(skyCP[i+1].x-skyCP[i].x);
         const tc=(1-Math.cos(t*Math.PI))/2;
         surfaceY=skyCP[i].y*(1-tc)+skyCP[i+1].y*tc; break;
       }
     }
-    const top=Math.round(surfaceY);
-    const bot2=Math.min(GAME_H-1,top+THICK);
-    for (let y=top;y<=bot2;y++) terrain[x][y]=1;
+    const top=Math.round(surfaceY),bot2=Math.min(GAME_H-1,top+THICK);
+    for(let y=top;y<=bot2;y++) terrain[x][y]=1;
   }
   terrainDirty=true;
 }
 
 // ── 온라인 게임 시작 ──
 function startOnlineGame(roomRef, seed, initWind, hostX, guestX) {
-  gameStartTime = Date.now();
+  gameStartTime=Date.now();
   buildSkyMapWithSeed(seed);
-  const myX  = myRole==='host' ? hostX : guestX;
-  const oppX = myRole==='host' ? guestX : hostX;
-
-  G = {
-    wind:initWind, turn:'player',
-    phase: myRole==='host' ? 'move' : 'wait',
-    pwrCharging:false, pwrVal:0,
-    projectiles:[], explosions:[],
+  const myX=myRole==='host'?hostX:guestX, oppX=myRole==='host'?guestX:hostX;
+  G={
+    wind:initWind, turn:'player', phase:myRole==='host'?'move':'wait',
+    pwrCharging:false, pwrVal:0, projectiles:[], explosions:[],
     gameOver:false, lastPower:0, pwrReady:false,
     botMoving:false, botTargetX:oppX,
     isOnline:true, myRole, roomRef,
-    player:{x:myX,y:100,vy:0,onGround:true,hp:200,maxHp:200,angle:30,
-      facing:myRole==='host'?1:-1,moveUsed:0,color:myRole==='host'?'#4af':'#f84',isBot:false},
-    bot:{x:oppX,y:100,vy:0,onGround:true,hp:200,maxHp:200,angle:30,
-      facing:myRole==='host'?-1:1,moveUsed:0,color:myRole==='host'?'#f84':'#4af',isBot:true}
+    player:{x:myX,y:100,vy:0,onGround:true,hp:200,maxHp:200,angle:30,facing:myRole==='host'?1:-1,moveUsed:0,color:myRole==='host'?'#4af':'#f84',isBot:false},
+    bot:{x:oppX,y:100,vy:0,onGround:true,hp:200,maxHp:200,angle:30,facing:myRole==='host'?-1:1,moveUsed:0,color:myRole==='host'?'#f84':'#4af',isBot:true}
   };
-
   const psy=getSurfaceY(G.player.x); if(psy>=0) G.player.y=psy-TANK_H;
-  const bsy=getSurfaceY(G.bot.x);    if(bsy>=0) G.bot.y=bsy-TANK_H;
-
+  const bsy=getSurfaceY(G.bot.x); if(bsy>=0) G.bot.y=bsy-TANK_H;
   document.getElementById('overlay').style.display='none';
-  document.getElementById('ingame-leave').style.display='block';
-  document.getElementById('leave-btn').style.display='block';
+  const il=document.getElementById('ingame-leave'); if(il) il.style.display='block';
+  const lb=document.getElementById('leave-btn'); if(lb) lb.style.display='block';
+  const lp=document.getElementById('label-p'); if(lp) lp.textContent='🔵 나';
+  const lbb=document.getElementById('label-b'); if(lbb) lbb.textContent='🔴 상대';
+  const otherRole=myRole==='host'?'guest':'host';
 
-  const lp=document.getElementById('label-p');
-  const lb=document.getElementById('label-b');
-  if(lp) lp.textContent='🔵 나';
-  if(lb) lb.textContent='🔴 상대';
-
-  const otherRole = myRole==='host'?'guest':'host';
-
-  // 상대 이동 동기화
-  roomRef.child('lastMove').child(otherRole).on('value', snap => {
-    const d=snap.val();
-    if(!d||G.gameOver) return;
-    G.bot.targetX=d.x; G.bot.targetY=d.y;
-    G.bot.facing=d.facing; G.bot.angle=d.angle;
+  roomRef.child('lastMove').child(otherRole).on('value', snap=>{
+    const d=snap.val(); if(!d||G.gameOver) return;
+    G.bot.targetX=d.x; G.bot.targetY=d.y; G.bot.facing=d.facing; G.bot.angle=d.angle;
   });
-
-  // 이벤트 수신
-  roomRef.child('events').on('child_added', snap => {
+  roomRef.child('events').on('child_added', snap=>{
     const ev=snap.val();
     if(!ev||ev.from===myRole||ev.ts<gameStartTime) return;
     handleRemoteEvent(ev);
   });
-
-  // 연결 끊김
   roomRef.child(myRole).onDisconnect().update({disconnected:true});
-  roomRef.child(otherRole).on('value', snap => {
-    if(snap.val()?.disconnected && !G.gameOver) {
-      showOverlay('🔌 연결 끊김','상대방이 나갔어요.');
-      G.gameOver=true;
-    }
+  roomRef.child(otherRole).on('value', snap=>{
+    if(snap.val()?.disconnected&&!G.gameOver){showOverlay('🔌 연결 끊김','상대방이 나갔어요.');G.gameOver=true;}
   });
-
-  // 채팅방 복귀 감지
-  roomRef.child('returnToRoom').on('value', snap => {
+  roomRef.child('returnToRoom').on('value', snap=>{
     if(!snap.val()) return;
     roomRef.child('returnToRoom').off();
     if(!document.getElementById('online-ui')) _returnToRoom();
   });
-
-  // 게임오버 동기화
-  roomRef.child('gameOver').on('value', snap => {
+  roomRef.child('gameOver').on('value', snap=>{
     const d=snap.val();
     if(!d||d.from===myRole||G.gameOver) return;
     G.gameOver=true;
-    const flipped=d.result==='win'?'lose':d.result==='lose'?'win':'draw';
-    _applyGameOver(flipped);
+    _applyGameOver(d.result==='win'?'lose':d.result==='lose'?'win':'draw');
   });
-
-  // 재시작
-  roomRef.child('restart').on('value', snap => {
-    const d=snap.val();
-    if(!d) return;
-    if(d[otherRole]===true && !d[myRole]) {
-      const btn=document.getElementById('restart-btn');
-      if(btn&&btn.style.display!=='none') btn.textContent='✅ 상대 준비! 눌러서 시작';
-    }
-    if(d.host===true && d.guest===true) {
+  roomRef.child('restart').on('value', snap=>{
+    const d=snap.val(); if(!d) return;
+    if(d[otherRole]===true&&!d[myRole]){const btn=document.getElementById('restart-btn');if(btn&&btn.style.display!=='none')btn.textContent='✅ 상대 준비! 눌러서 시작';}
+    if(d.host===true&&d.guest===true){
       roomRef.child('restart').off();
-      if(myRole==='host') {
-        const newSeed=Math.floor(Math.random()*1000000);
-        const newWind=(Math.random()-0.5)*10;
-        buildSkyMapWithSeed(newSeed);
-        const newPx=findSafeX(60,GAME_W/2-60);
-        const newBx=findSafeX(GAME_W/2+60,GAME_W-60);
-        roomRef.update({seed:newSeed,wind:newWind,hostX:newPx,guestX:newBx,events:null,lastMove:null,gameOver:null,restart:null,status:'playing'})
-          .then(()=>startOnlineGame(roomRef,newSeed,newWind,newPx,newBx));
+      if(myRole==='host'){
+        const ns=Math.floor(Math.random()*1000000),nw=(Math.random()-0.5)*10;
+        buildSkyMapWithSeed(ns);
+        const npx=findSafeX(60,GAME_W/2-60),nbx=findSafeX(GAME_W/2+60,GAME_W-60);
+        roomRef.update({seed:ns,wind:nw,hostX:npx,guestX:nbx,events:null,lastMove:null,gameOver:null,restart:null,status:'playing'})
+          .then(()=>startOnlineGame(roomRef,ns,nw,npx,nbx));
       } else {
         setTimeout(()=>roomRef.once('value').then(s=>{const nd=s.val();startOnlineGame(roomRef,nd.seed,nd.wind,nd.hostX,nd.guestX);}),400);
       }
     }
   });
-
   updateUI();
   showTurnNotice(myRole==='host'?'🔵 내 턴!':'⏳ 상대 턴...');
   requestAnimationFrame(gameLoop);
 }
 
-// 이동 전송
 setInterval(()=>{
   if(!G?.isOnline||!G.roomRef||G.gameOver) return;
   if(G.phase!=='move'||G.turn!=='player'||G.firing) return;
   G.roomRef.child('lastMove').child(myRole).set({x:G.player.x,y:G.player.y,facing:G.player.facing,angle:G.player.angle});
 },80);
 
-function pushEvent(type, data) {
-  if(!G?.isOnline||!G.roomRef) return;
-  G.roomRef.child('events').push({from:myRole,type,...data,ts:Date.now()});
-}
-
-function handleRemoteEvent(ev) {
+function pushEvent(type,data){if(!G?.isOnline||!G.roomRef) return;G.roomRef.child('events').push({from:myRole,type,...data,ts:Date.now()});}
+function handleRemoteEvent(ev){
   if(G.gameOver) return;
-  if(ev.type==='fire') {
-    G.bot.angle=ev.angle; G.bot.facing=ev.facing; G.wind=ev.wind;
-    fireShot(G.bot,ev.power);
-    waitProjectiles(()=>{ if(!G.gameOver) switchToMyTurn(); });
-  } else if(ev.type==='pass') {
-    G.wind=ev.wind; switchToMyTurn();
-  }
+  if(ev.type==='fire'){G.bot.angle=ev.angle;G.bot.facing=ev.facing;G.wind=ev.wind;fireShot(G.bot,ev.power);waitProjectiles(()=>{if(!G.gameOver)switchToMyTurn();});}
+  else if(ev.type==='pass'){G.wind=ev.wind;switchToMyTurn();}
 }
+function waitProjectiles(cb){const check=()=>{if(G.projectiles.length===0)setTimeout(cb,500);else setTimeout(check,100);};setTimeout(check,200);}
+function switchToMyTurn(){G.turn='player';G.phase='move';G.pwrVal=0;G.pwrCharging=false;G.firing=false;G.player.moveUsed=0;G.bot.moveUsed=0;showTurnNotice('🔵 내 턴!');updateUI();}
+function switchToOppTurn(){G.turn='bot';G.phase='wait';G.pwrVal=0;G.pwrCharging=false;G.bot.moveUsed=0;showTurnNotice('⏳ 상대 턴...');updateUI();}
+function onlineFire(power){fireShot(G.player,power);pushEvent('fire',{angle:G.player.angle,facing:G.player.facing,power,wind:G.wind});}
+function onlinePass(){G.wind=updateWind();pushEvent('pass',{wind:G.wind});switchToOppTurn();}
 
-function waitProjectiles(cb) {
-  const check=()=>{ if(G.projectiles.length===0) setTimeout(cb,500); else setTimeout(check,100); };
-  setTimeout(check,200);
-}
-
-function switchToMyTurn() {
-  G.turn='player'; G.phase='move';
-  G.pwrVal=0; G.pwrCharging=false; G.firing=false;
-  G.player.moveUsed=0; G.bot.moveUsed=0;
-  showTurnNotice('🔵 내 턴!'); updateUI();
-}
-function switchToOppTurn() {
-  G.turn='bot'; G.phase='wait';
-  G.pwrVal=0; G.pwrCharging=false;
-  G.bot.moveUsed=0;
-  showTurnNotice('⏳ 상대 턴...'); updateUI();
-}
-
-function onlineFire(power) {
-  fireShot(G.player,power);
-  pushEvent('fire',{angle:G.player.angle,facing:G.player.facing,power,wind:G.wind});
-}
-function onlinePass() {
-  G.wind=updateWind();
-  pushEvent('pass',{wind:G.wind});
-  switchToOppTurn();
-}
-
-// update 오버라이드
-const _origUpdate = update;
-window.update = function(dt) {
-  if(!G?.isOnline) { _origUpdate(dt); return; }
-  if(G.gameOver) { _origUpdate(dt); return; }
-  const {player,bot}=G;
-  if(G.pwrCharging && G.phase==='move' && G.turn==='player' && !G.firing)
-    G.pwrVal=Math.min(100,G.pwrVal+dt*70);
-  if(G.turn==='player' && G.phase==='move') {
-    if(keys['ArrowLeft']) { player.facing=-1; if(player.moveUsed<MAX_MOVE&&player.onGround){const nx=Math.max(10,player.x-MOVE_SPEED*dt);const cs=getSurfaceYNear(player.x,player.y);const ns=getSurfaceYNear(nx,player.y);const hu=(cs>0&&ns>0)?cs-ns:0;if(hu<5){const sf=Math.max(0.3,1-Math.max(0,hu)*0.04);const mv=MOVE_SPEED*sf*dt;player.x=Math.max(10,player.x-mv);player.moveUsed+=mv*(1+Math.max(0,hu)*0.06);}}}
-    if(keys['ArrowRight']) { player.facing=1; if(player.moveUsed<MAX_MOVE&&player.onGround){const nx=Math.min(GAME_W-10,player.x+MOVE_SPEED*dt);const cs=getSurfaceYNear(player.x,player.y);const ns=getSurfaceYNear(nx,player.y);const hu=(cs>0&&ns>0)?cs-ns:0;if(hu<5){const sf=Math.max(0.3,1-Math.max(0,hu)*0.04);const mv=MOVE_SPEED*sf*dt;player.x=Math.min(GAME_W-10,player.x+mv);player.moveUsed+=mv*(1+Math.max(0,hu)*0.06);}}}
-    if(keys['ArrowUp'])   player.angle=Math.min(ANGLE_RANGE,player.angle+ANGLE_SPEED*dt);
+const _origUpdate=update;
+window.update=function(dt){
+  if(!G?.isOnline){_origUpdate(dt);return;}
+  if(G.gameOver){_origUpdate(dt);return;}
+  const{player,bot}=G;
+  if(G.pwrCharging&&G.phase==='move'&&G.turn==='player'&&!G.firing) G.pwrVal=Math.min(100,G.pwrVal+dt*70);
+  if(G.turn==='player'&&G.phase==='move'){
+    if(keys['ArrowLeft']){player.facing=-1;if(player.moveUsed<MAX_MOVE&&player.onGround){const nx=Math.max(10,player.x-MOVE_SPEED*dt);const cs=getSurfaceYNear(player.x,player.y),ns=getSurfaceYNear(nx,player.y),hu=(cs>0&&ns>0)?cs-ns:0;if(hu<5){const sf=Math.max(0.3,1-Math.max(0,hu)*0.04),mv=MOVE_SPEED*sf*dt;player.x=Math.max(10,player.x-mv);player.moveUsed+=mv*(1+Math.max(0,hu)*0.06);}}}
+    if(keys['ArrowRight']){player.facing=1;if(player.moveUsed<MAX_MOVE&&player.onGround){const nx=Math.min(GAME_W-10,player.x+MOVE_SPEED*dt);const cs=getSurfaceYNear(player.x,player.y),ns=getSurfaceYNear(nx,player.y),hu=(cs>0&&ns>0)?cs-ns:0;if(hu<5){const sf=Math.max(0.3,1-Math.max(0,hu)*0.04),mv=MOVE_SPEED*sf*dt;player.x=Math.min(GAME_W-10,player.x+mv);player.moveUsed+=mv*(1+Math.max(0,hu)*0.06);}}}
+    if(keys['ArrowUp']) player.angle=Math.min(ANGLE_RANGE,player.angle+ANGLE_SPEED*dt);
     if(keys['ArrowDown']) player.angle=Math.max(ANGLE_MIN,player.angle-ANGLE_SPEED*dt);
   } else {
-    if(keys['ArrowUp'])   player.angle=Math.min(ANGLE_RANGE,player.angle+ANGLE_SPEED*dt);
+    if(keys['ArrowUp']) player.angle=Math.min(ANGLE_RANGE,player.angle+ANGLE_SPEED*dt);
     if(keys['ArrowDown']) player.angle=Math.max(ANGLE_MIN,player.angle-ANGLE_SPEED*dt);
   }
   if(G.pwrCharging&&G.phase!=='move'&&!G.firing) G.pwrVal=Math.min(100,G.pwrVal+dt*70);
@@ -2135,7 +1940,7 @@ window.update = function(dt) {
           const acc=bodyHit?Math.max(0.6,1-centerDist/55):0.8;
           const tb=Math.floor(Math.min(20,Math.max(0,(p.travelDist-500)/1500*20)));
           [{dmg:Math.round(20*acc),delay:0},{dmg:Math.round(10*acc),delay:130},{dmg:Math.round(5*acc)+tb,delay:260}]
-          .forEach(ds=>setTimeout(()=>{if(!G.gameOver&&tank.hp>0){tank.hp=Math.max(0,tank.hp-ds.dmg);checkGameOver();}},ds.delay));
+            .forEach(ds=>setTimeout(()=>{if(!G.gameOver&&tank.hp>0){tank.hp=Math.max(0,tank.hp-ds.dmg);checkGameOver();}},ds.delay));
           deformTerrain(p.x,p.y,p.vx,p.vy);hit=true;
         }
       });
@@ -2153,10 +1958,7 @@ window.update = function(dt) {
   checkGameOver();updateUI();
 };
 
-// 게임 시작
 showOnlineUI();
-
-// Service Worker
 if('serviceWorker' in navigator) navigator.serviceWorker.register('/fortressonline/sw.js').catch(()=>{});
 </script>
 </body>
