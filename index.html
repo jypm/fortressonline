@@ -9,6 +9,9 @@
 <meta name="apple-mobile-web-app-title" content="포트리스">
 <meta name="theme-color" content="#000000">
 <link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>포트리스 온라인</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -2340,6 +2343,11 @@ function unlockOrientation() {
 
 // 게임 시작
 showOnlineUI();
+
+// Service Worker 등록
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/fortressonline/sw.js').catch(()=>{});
+}
 </script>
 </body>
 </html>
