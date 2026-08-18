@@ -1701,7 +1701,7 @@ function showRoomUI(roomRef, seed, initWind, px, bx) {
         btnArea.innerHTML=`<div style="text-align:center;color:#f84;font-size:13px;padding:10px;">👥 4인 채팅방 · 게임 불가</div>`;
       } else if(myRole==='host'){
         const guestReady=data.guest?.ready===true, hasGuest=!!data.guest;
-        btnArea.innerHTML=`<button onclick="startOnlineGameFromRoom(roomRef,${JSON.stringify(data.seed||0)},${JSON.stringify(data.wind||0)},${JSON.stringify(data.hostX||0)},${JSON.stringify(data.guestX||0)})" ${(!hasGuest||!guestReady)?'disabled':''} style="width:100%;padding:14px;background:${hasGuest&&guestReady?'#4c4':'#333'};color:${hasGuest&&guestReady?'#000':'#666'};border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:${hasGuest&&guestReady?'pointer':'not-allowed'};font-family:'Courier New',monospace;">${!hasGuest?'상대방 대기 중...':!guestReady?'상대방 준비 대기 중...':'🚀 게임 시작!'}</button>`;
+        btnArea.innerHTML=`<button onclick="startOnlineGameFromRoom()" ${(!hasGuest||!guestReady)?'disabled':''} style="width:100%;padding:14px;background:${hasGuest&&guestReady?'#4c4':'#333'};color:${hasGuest&&guestReady?'#000':'#666'};border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:${hasGuest&&guestReady?'pointer':'not-allowed'};font-family:'Courier New',monospace;">${!hasGuest?'상대방 대기 중...':!guestReady?'상대방 준비 대기 중...':'🚀 게임 시작!'}</button>`;
       } else {
         const isReady=data.guest?.ready===true;
         btnArea.innerHTML=`<button onclick="toggleReady2()" style="width:100%;padding:14px;background:${isReady?'#f84':'#4af'};color:#000;border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer;font-family:'Courier New',monospace;">${isReady?'⏳ 대기중으로 변경':'✅ 준비 완료!'}</button>`;
@@ -1723,16 +1723,17 @@ async function toggleReady2() {
   await db.ref('rooms/'+roomCode+'/guest/ready').set(!snap.val()?.ready);
 }
 
-async function startOnlineGameFromRoom(roomRef,seed,wind,hostX,guestX) {
-  const snap=await db.ref('rooms/'+roomCode).once('value');
+async function startOnlineGameFromRoom() {
+  const roomRef = db.ref('rooms/'+roomCode);
+  const snap=await roomRef.once('value');
   const data=snap.val();
   if(!data?.guest?.ready) return;
-  await db.ref('rooms/'+roomCode).update({status:'playing'});
+  await roomRef.update({status:'playing'});
   hideOnlineUI();
   db.ref('lobby/users/'+myUid).remove();
   document.getElementById('touch-controls').style.display='flex';
   lockLandscape();
-  startOnlineGame(db.ref('rooms/'+roomCode),data.seed,data.wind,data.hostX,data.guestX);
+  startOnlineGame(roomRef, data.seed, data.wind, data.hostX, data.guestX);
 }
 
 function sendChat2() {
