@@ -652,6 +652,7 @@ function fireShot(tank, power) {
 // ── 업데이트 ──
 let lastTs = 0;
 function gameLoop(ts) {
+  if (!G || !G.player) { requestAnimationFrame(gameLoop); return; }
   const dt = Math.min((ts - lastTs) / 1000, 0.05);
   lastTs = ts;
   if (terrainDirty) redrawTerrain();
