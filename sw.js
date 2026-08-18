@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fortress-v1';
+const CACHE_NAME = 'fortress-v2';
 const FILES = [
   '/fortressonline/',
   '/fortressonline/index.html',
