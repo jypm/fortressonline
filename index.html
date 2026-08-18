@@ -1482,6 +1482,12 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
+// 뒤로가기 막기
+history.pushState(null, '', location.href);
+window.addEventListener('popstate', () => {
+  history.pushState(null, '', location.href);
+});
+
 let myRole = null;
 let roomCode = null;
 let gameStartTime = 0;
@@ -2228,12 +2234,6 @@ if (G.bot.targetX !== undefined) {
 // (위 코드로 통합됨)
 
 // 게임 시작
-// 뒤로가기 막기
-history.pushState(null, '', location.href);
-window.addEventListener('popstate', () => {
-  history.pushState(null, '', location.href);
-});
-
 showOnlineUI();
 </script>
 </body>
